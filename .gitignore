@@ -1,0 +1,12 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+backend/data/data.json
+backend/data/session.json
+.DS_Store
+.idea/
+.screenshots/

@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.env
+**/data/data.json
+**/data/session.json
+.git
+.idea
+.DS_Store
+README.md

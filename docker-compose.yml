@@ -1,0 +1,15 @@
+services:
+  vintagent:
+    build: .
+    image: vintagent:latest
+    container_name: vintagent
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    volumes:
+      - ./backend/data:/app/data
+    restart: unless-stopped
+    # Guardrails for the 1GB GCP Free Tier VM
+    mem_limit: 512m
+    cpus: 1.0
