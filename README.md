@@ -91,9 +91,27 @@ która wykona ten skrypt. VintAgent robi to sam, w trzech poziomach:
    Przeglądarka wchodzi na stronę główną, przechodzi wyzwanie, oddaje cookies i natychmiast się zamyka.
 
 Cookies lądują w `backend/data/session.json` (prawa `0600`) i przeżywają restart kontenera.
-Nie ma czego wklejać do `.env`.
+Nie ma czego wklejać do `.env` na co dzień.
 
-Chromium startuje **na żądanie**, nie w pętli czasowej, więc w normalnej pracy proces aplikacji zajmuje
+### Gdy Chromium na serwerze nie dostaje tokenu (GCP / Cloudflare)
+
+IP datacenter często nie przechodzi wyzwania JS, nawet z prawdziwą przeglądarką. Lokalnie (IP
+domowe) działa, na VM nie — dokładnie ten objaw: `Sesja: pobieranie` + `HTTP 401`.
+
+**Szybka naprawa (bez rebuildu):** skopiuj lokalną sesję na serwer:
+
+```bash
+# lokalnie, w katalogu VintAgent
+scp backend/data/session.json USER@IP_SERWERA:~/VintAgent/backend/data/session.json
+
+# na serwerze
+cd ~/VintAgent && docker compose restart
+```
+
+Albo w panelu: przycisk **Wklej** obok statusu sesji → wklej cały nagłówek `Cookie` z lokalnej
+przeglądarki (DevTools → Network → vinted.pl → Request Headers → Cookie).
+
+Po zaimportowaniu HTTP refresh sam utrzyma sesję tygodniami. Chromium startuje **na żądanie**, nie w pętli czasowej, więc w normalnej pracy proces aplikacji zajmuje
 tyle co samo FastAPI. Na czas bootstrapu (kilka sekund) dochodzi ~250 MB RAM, a `BROWSER_MIN_INTERVAL_SECONDS`
 pilnuje, żeby nieudane próby nie zamieniły się w pętlę uruchomień. Sesją opiekuje się dodatkowo
 watchdog (`app/session_keeper.py`), który co 5 minut sprawdza jej ważność, więc odnowienie następuje

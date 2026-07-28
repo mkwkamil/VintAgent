@@ -9,7 +9,9 @@ type Props = {
   testingTelegram: boolean
   onRefreshSession: () => void
   refreshingSession: boolean
+  onImportSession: () => void
 }
+
 
 const pillStyle = {
   borderColor: 'var(--border)',
@@ -37,6 +39,7 @@ export default function TopNav({
   testingTelegram,
   onRefreshSession,
   refreshingSession,
+  onImportSession,
 }: Props) {
   const { username, logout } = useAuth()
   const atLimit = stats ? stats.active_threads >= stats.max_threads : false
@@ -66,22 +69,33 @@ export default function TopNav({
             Wątki: {stats ? `${stats.active_threads}/${stats.max_threads}` : '–'}
           </span>
 
-          <button
-            type="button"
-            onClick={onRefreshSession}
-            disabled={refreshingSession || !session?.browser_available}
-            title={
-              session?.last_bootstrap_error
-                ? `Ostatni błąd: ${session.last_bootstrap_error}`
-                : session?.browser_available
-                  ? 'Odnów cookies Vinted w tle (headless Chromium)'
-                  : 'Automatyczne odnawianie sesji jest niedostępne'
-            }
-            className="rounded-full border px-3 py-1.5 transition-colors disabled:opacity-45"
-            style={{ ...pillStyle, color: sessionState.color }}
-          >
-            {sessionState.text}
-          </button>
+          <div className="flex overflow-hidden rounded-full border" style={pillStyle}>
+            <button
+              type="button"
+              onClick={onRefreshSession}
+              disabled={refreshingSession || !session?.browser_available}
+              title={
+                session?.last_bootstrap_error
+                  ? `Ostatni błąd: ${session.last_bootstrap_error}`
+                  : session?.browser_available
+                    ? 'Odnów cookies Vinted przeglądarką'
+                    : 'Automatyczne odnawianie sesji jest niedostępne'
+              }
+              className="px-3 py-1.5 transition-colors disabled:opacity-45"
+              style={{ color: sessionState.color }}
+            >
+              {sessionState.text}
+            </button>
+            <button
+              type="button"
+              onClick={onImportSession}
+              title="Wklej cookies z lokalnej przeglądarki (gdy Cloudflare blokuje IP serwera)"
+              className="border-l px-2.5 py-1.5 transition-colors hover:opacity-80"
+              style={{ borderColor: 'var(--border)', color: 'var(--muted-light)' }}
+            >
+              Wklej
+            </button>
+          </div>
 
           <button
             type="button"

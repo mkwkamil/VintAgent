@@ -31,6 +31,15 @@ ACCESS_TOKEN_COOKIE = "access_token_web"
 REFRESH_TOKEN_COOKIE = "refresh_token_web"
 
 
+def parse_cookie_header(raw: str) -> dict[str, str]:
+    cookies: dict[str, str] = {}
+    for chunk in raw.split(";"):
+        name, separator, value = chunk.strip().partition("=")
+        if separator and name:
+            cookies[name] = value
+    return cookies
+
+
 def jwt_expiry(token: str | None) -> datetime | None:
     """Read the ``exp`` claim without verifying the signature (we are not the audience)."""
     if not token or token.count(".") != 2:
@@ -113,6 +122,15 @@ class SessionStore:
             if not changed:
                 return self._version
             self._cookies.update(changed)
+            self._version += 1
+            self._persist()
+            return self._version
+
+    def replace(self, cookies: dict[str, str]) -> int:
+        """Overwrite the jar (used when seeding from a residential IP / pasted cookies)."""
+        cleaned = {k: v for k, v in cookies.items() if k and v}
+        with self._lock:
+            self._cookies = cleaned
             self._version += 1
             self._persist()
             return self._version

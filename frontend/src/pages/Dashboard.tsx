@@ -4,6 +4,7 @@ import type { SessionStatus, Stats, TrackedUrl } from '../api/client'
 import TopNav from '../components/TopNav'
 import UrlCard from '../components/UrlCard'
 import UrlFormModal from '../components/UrlFormModal'
+import SessionImportModal from '../components/SessionImportModal'
 import UrlDetail from './UrlDetail'
 import { useHashRoute } from '../lib/useHashRoute'
 
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [modal, setModal] = useState<{ item: TrackedUrl | null } | null>(null)
+  const [sessionModal, setSessionModal] = useState(false)
   const [testingTelegram, setTestingTelegram] = useState(false)
   const [refreshingSession, setRefreshingSession] = useState(false)
   const noticeTimer = useRef<number | null>(null)
@@ -99,6 +101,7 @@ export default function Dashboard() {
         testingTelegram={testingTelegram}
         onRefreshSession={refreshSession}
         refreshingSession={refreshingSession}
+        onImportSession={() => setSessionModal(true)}
       />
 
       <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -194,6 +197,18 @@ export default function Dashboard() {
           onSubmit={async (name, url) => {
             if (modal.item) await api.updateUrl(modal.item.id, { name, url })
             else await api.createUrl(name, url)
+            await refresh()
+          }}
+        />
+      )}
+
+      {sessionModal && (
+        <SessionImportModal
+          onClose={() => setSessionModal(false)}
+          onSubmit={async (cookie) => {
+            const result = await api.importSession(cookie)
+            setSession(result)
+            flash('info', 'Sesja Vinted zaimportowana')
             await refresh()
           }}
         />

@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # steady-state memory cost is zero.
     browser_bootstrap_enabled: bool = True
     browser_min_interval_seconds: float = 120.0
-    browser_timeout_seconds: float = 45.0
+    browser_timeout_seconds: float = 90.0
     browser_executable_path: str = ""
     browser_locale: str = "pl-PL"
     browser_timezone: str = "Europe/Warsaw"

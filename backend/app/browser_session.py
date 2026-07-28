@@ -4,8 +4,12 @@ Cloudflare's managed challenge is JavaScript: no header or TLS trick solves it,
 only an engine that runs the script. Chromium is therefore kept as a *last
 resort* — day to day the session is renewed with a plain HTTP token refresh
 (a few kB), and the browser is launched only when there is no usable session at
-all. Each launch is short-lived, single-flight and rate limited, so the resident
-footprint of the app stays at the FastAPI process alone.
+all.
+
+On residential IPs this usually works. On datacenter IPs (GCP, AWS, …) Cloudflare
+often never issues ``access_token_web``; in that case seed the jar by copying
+``session.json`` from a machine that can bootstrap, then let HTTP refresh keep
+it alive.
 """
 
 from __future__ import annotations
@@ -21,9 +25,9 @@ from .session_store import ACCESS_TOKEN_COOKIE, get_session_store
 
 logger = logging.getLogger(__name__)
 
-# Images and fonts are pure overhead here: we only need the cookies Cloudflare
-# and Vinted set while the document loads.
-BLOCKED_RESOURCES = {"image", "media", "font", "stylesheet"}
+# Images/media/fonts are pure overhead. Stylesheets stay: Cloudflare's challenge
+# page sometimes needs CSS before the JS finishes and issues cookies.
+BLOCKED_RESOURCES = {"image", "media", "font"}
 
 CHROMIUM_ARGS = [
     "--no-sandbox",
@@ -33,6 +37,7 @@ CHROMIUM_ARGS = [
     "--disable-extensions",
     "--disable-background-networking",
     "--mute-audio",
+    "--disable-blink-features=AutomationControlled",
 ]
 
 
@@ -113,8 +118,15 @@ class BrowserBootstrap:
                 return False
 
             if ACCESS_TOKEN_COOKIE not in cookies:
-                self._last_error = "Vinted nie wydał tokenu sesji (możliwe wyzwanie Cloudflare)"
-                logger.warning("Browser bootstrap finished without %s", ACCESS_TOKEN_COOKIE)
+                self._last_error = (
+                    "Vinted nie wydał tokenu sesji (Cloudflare na IP serwera). "
+                    "Skopiuj backend/data/session.json z lokalnej maszyny albo wklej cookies w panelu."
+                )
+                logger.warning(
+                    "Browser bootstrap finished without %s (got: %s)",
+                    ACCESS_TOKEN_COOKIE,
+                    sorted(cookies) or "no cookies",
+                )
                 return False
 
             store.update(cookies)
@@ -148,9 +160,16 @@ class BrowserBootstrap:
                 context = browser.new_context(
                     locale=settings.browser_locale,
                     timezone_id=settings.browser_timezone,
-                    viewport={"width": 1280, "height": 800},
+                    viewport={"width": 1365, "height": 900},
+                    user_agent=(
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+                    ),
                 )
                 page = context.new_page()
+                page.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+                )
                 page.route(
                     "**/*",
                     lambda route: route.abort()
@@ -159,13 +178,34 @@ class BrowserBootstrap:
                 )
                 page.goto(settings.vinted_base_url, wait_until="domcontentloaded", timeout=timeout_ms)
                 self._wait_for_token(page, context, timeout_ms)
-                return {
+                cookies = {
                     cookie["name"]: cookie["value"]
                     for cookie in context.cookies()
                     if cookie.get("name") and cookie.get("value")
                 }
+                if ACCESS_TOKEN_COOKIE not in cookies:
+                    self._log_failure_context(page, cookies)
+                return cookies
             finally:
                 browser.close()
+
+    def _log_failure_context(self, page: Any, cookies: dict[str, str]) -> None:
+        title = ""
+        url = ""
+        snippet = ""
+        try:
+            title = page.title()
+            url = page.url
+            snippet = (page.content() or "")[:400].replace("\n", " ")
+        except Exception:
+            logger.debug("Could not read page context after failed bootstrap", exc_info=True)
+        logger.warning(
+            "Bootstrap page title=%r url=%r cookies=%s body≈%r",
+            title,
+            url,
+            sorted(cookies),
+            snippet,
+        )
 
     @staticmethod
     def _wait_for_token(page: Any, context: Any, timeout_ms: int) -> None:

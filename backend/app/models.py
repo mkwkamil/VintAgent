@@ -106,6 +106,12 @@ class SessionStatus(BaseModel):
     last_bootstrap_error: str | None = None
 
 
+class SessionImport(BaseModel):
+    """Seed cookies obtained from a residential browser / local VintAgent."""
+
+    cookie: str = Field(min_length=20, max_length=16_000)
+
+
 class ThreadStats(BaseModel):
     active_threads: int
     max_threads: int

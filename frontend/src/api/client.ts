@@ -120,6 +120,12 @@ export const api = {
 
   refreshSession: () => request<SessionStatus>('/api/session/refresh', { method: 'POST' }),
 
+  importSession: (cookie: string) =>
+    request<SessionStatus>('/api/session/import', {
+      method: 'POST',
+      body: JSON.stringify({ cookie }),
+    }),
+
   testTelegram: () => request<{ detail: string }>('/api/telegram/test', { method: 'POST' }),
 
   listUrls: () => request<TrackedUrl[]>('/api/urls'),

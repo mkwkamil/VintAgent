@@ -8,8 +8,8 @@ from .. import telegram
 from ..auth import require_admin
 from ..browser_session import get_bootstrap
 from ..config import Settings, get_settings
-from ..models import MessageResponse, SessionStatus, ThreadStats
-from ..session_store import get_session_store
+from ..models import MessageResponse, SessionImport, SessionStatus, ThreadStats
+from ..session_store import ACCESS_TOKEN_COOKIE, get_session_store, parse_cookie_header
 from ..thread_manager import get_manager
 
 router = APIRouter(tags=["system"])
@@ -55,6 +55,25 @@ def session_refresh(_: str = Depends(require_admin)) -> SessionStatus:
             detail=bootstrap.status()["last_bootstrap_error"] or "Nie udało się odnowić sesji Vinted",
         )
     return SessionStatus(**get_session_store().status(), **bootstrap.status())
+
+
+@router.post("/session/import", response_model=SessionStatus)
+def session_import(payload: SessionImport, _: str = Depends(require_admin)) -> SessionStatus:
+    """Seed the jar with cookies from a residential browser.
+
+    Datacenter IPs (GCP Free Tier) are often refused a Cloudflare challenge, so
+    the practical workaround is to bootstrap once on a home machine and paste
+    the Cookie header (or copy session.json) onto the server. HTTP refresh then
+    keeps the session alive for weeks.
+    """
+    cookies = parse_cookie_header(payload.cookie)
+    if ACCESS_TOKEN_COOKIE not in cookies:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Brak access_token_web w cookies — skopiuj cały nagłówek Cookie z vinted.pl",
+        )
+    get_session_store().replace(cookies)
+    return SessionStatus(**get_session_store().status(), **get_bootstrap().status())
 
 
 @router.post("/telegram/test", response_model=MessageResponse)
