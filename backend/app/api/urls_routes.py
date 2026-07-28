@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from .. import storage
+from .. import analytics, storage
 from ..auth import require_admin
-from ..models import URLCreate, URLOut, URLUpdate
+from ..models import MessageResponse, URLCreate, URLOut, URLStats, URLUpdate
 from ..storage import STATUS_RUNNING, STATUS_STOPPED
 from ..thread_manager import MaxThreadsReached, get_manager
 
@@ -27,6 +27,28 @@ def _require_record(url_id: str) -> dict:
 @router.get("", response_model=list[URLOut])
 def list_urls() -> list[URLOut]:
     return [_out(record) for record in storage.list_urls()]
+
+
+@router.get("/{url_id}", response_model=URLOut)
+def get_url(url_id: str) -> URLOut:
+    return _out(_require_record(url_id))
+
+
+@router.get("/{url_id}/stats", response_model=URLStats)
+def url_stats(
+    url_id: str,
+    hours: int = Query(default=24, ge=1, le=168),
+    tz_offset_minutes: int = Query(default=0, ge=-840, le=840),
+) -> URLStats:
+    record = _require_record(url_id)
+    return URLStats(**analytics.detail(record, tz_offset_minutes=tz_offset_minutes, hours=hours))
+
+
+@router.post("/{url_id}/stats/reset", response_model=MessageResponse)
+def reset_url_stats(url_id: str) -> MessageResponse:
+    _require_record(url_id)
+    storage.reset_stats(url_id)
+    return MessageResponse(detail="Statystyki wyczyszczone")
 
 
 @router.post("", response_model=URLOut, status_code=status.HTTP_201_CREATED)

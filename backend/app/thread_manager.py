@@ -22,6 +22,19 @@ logger = logging.getLogger(__name__)
 
 CRASH_RESTART_SECONDS = 5.0
 
+# Raw exception text (curl error codes, stack-ish detail) is useless on a card,
+# so the common failures get a plain-Polish equivalent.
+ERROR_MESSAGES = {
+    "ConnectionError": "Brak połączenia z Vinted, ponawiam",
+    "Timeout": "Vinted nie odpowiedział na czas, ponawiam",
+    "ConnectTimeout": "Vinted nie odpowiedział na czas, ponawiam",
+    "JSONDecodeError": "Vinted zwrócił nieoczekiwaną odpowiedź, ponawiam",
+}
+
+
+def describe_error(exc: Exception) -> str:
+    return ERROR_MESSAGES.get(type(exc).__name__, f"{type(exc).__name__}: {exc}"[:200])
+
 
 class MaxThreadsReached(RuntimeError):
     def __init__(self, limit: int) -> None:
@@ -142,10 +155,9 @@ class ThreadManager:
                     logger.info("URL %s was deleted, ending thread", url_id)
                     return
                 self._poll_once(record, scraper)
-                storage.mark_checked(url_id, error=None)
             except VintedBlocked as exc:
                 logger.warning("%s: %s", url_id, exc)
-                storage.mark_checked(url_id, error=str(exc))
+                storage.record_poll(url_id, error=str(exc))
                 try:
                     scraper.refresh_session()
                 except Exception:
@@ -156,7 +168,7 @@ class ThreadManager:
                 )
             except Exception as exc:
                 logger.exception("Polling failed for %s", url_id)
-                storage.mark_checked(url_id, error=f"{type(exc).__name__}: {exc}"[:300])
+                storage.record_poll(url_id, error=describe_error(exc))
                 delay = settings.error_backoff_seconds
 
             stop_event.wait(delay)
@@ -168,6 +180,7 @@ class ThreadManager:
 
         if not record.get("seeded"):
             storage.record_seen(url_id, item_ids)
+            storage.record_poll(url_id)
             logger.info("Seeded '%s' with %d item(s), no notifications sent", record["name"], len(items))
             return
 
@@ -175,9 +188,14 @@ class ThreadManager:
         new_items = [item for item in items if item.id not in known]
         # Vinted returns newest first; notify in listing order (oldest new item first).
         for item in reversed(new_items):
-            telegram.send_item(item, record["name"], self._settings)
+            telegram.send_item(item, record["name"], self._settings, source_url=record["url"])
 
         storage.record_seen(url_id, item_ids)
+        storage.record_poll(
+            url_id,
+            found_count=len(new_items),
+            listed_timestamps=[item.listed_ts for item in new_items if item.listed_ts],
+        )
         if new_items:
             logger.info("'%s': found %d new item(s)", record["name"], len(new_items))
 

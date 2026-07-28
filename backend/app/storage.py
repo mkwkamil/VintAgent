@@ -30,6 +30,24 @@ def utc_now() -> str:
     return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
+def hour_key(moment: datetime) -> str:
+    """Hourly bucket id in UTC, e.g. ``2026-07-28T21``."""
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H")
+
+
+def empty_stats() -> dict[str, Any]:
+    return {
+        # Keyed by hour: "found" is what we detected, "listed" is when the seller
+        # actually posted it. Two different questions, two different histograms.
+        "found_by_hour": {},
+        "listed_by_hour": {},
+        "checks": 0,
+        "errors": 0,
+        "found_total": 0,
+        "last_found_at": None,
+    }
+
+
 class JsonStore:
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -120,6 +138,7 @@ def create_url(name: str, url: str) -> dict[str, Any]:
         "last_error": None,
         "seeded": False,
         "seen_ids": [],
+        "stats": empty_stats(),
     }
     with get_store().transaction() as data:
         data["urls"].append(record)
@@ -140,6 +159,7 @@ def update_url(url_id: str, *, name: str | None = None, url: str | None = None) 
             record["seeded"] = False
             record["seen_ids"] = []
             record["last_error"] = None
+            record["stats"] = empty_stats()
         return dict(record)
 
 
@@ -162,13 +182,70 @@ def set_status(url_id: str, status: str) -> dict[str, Any] | None:
         return dict(record)
 
 
-def mark_checked(url_id: str, *, error: str | None = None) -> None:
+def get_stats(record: dict[str, Any]) -> dict[str, Any]:
+    """Stats of a record, tolerating entries written before stats existed."""
+    stats = record.get("stats")
+    if not isinstance(stats, dict):
+        return empty_stats()
+    return {**empty_stats(), **stats}
+
+
+def _prune(buckets: dict[str, Any], limit: int) -> dict[str, Any]:
+    if len(buckets) <= limit:
+        return buckets
+    # Hour keys sort chronologically as plain strings.
+    return {key: buckets[key] for key in sorted(buckets)[-limit:]}
+
+
+def record_poll(
+    url_id: str,
+    *,
+    error: str | None = None,
+    found_count: int = 0,
+    listed_timestamps: Iterable[int] = (),
+) -> None:
+    """Persist the outcome of a single poll: timestamp, error and statistics."""
+    retention = get_settings().stats_retention_hours
+    now = datetime.now(tz=timezone.utc)
+
     with get_store().transaction() as data:
         record = _find(data, url_id)
         if record is None:
             return
         record["last_checked_at"] = utc_now()
         record["last_error"] = error
+
+        stats = get_stats(record)
+        stats["checks"] += 1
+        if error:
+            stats["errors"] += 1
+
+        if found_count:
+            bucket = hour_key(now)
+            stats["found_by_hour"][bucket] = stats["found_by_hour"].get(bucket, 0) + found_count
+            stats["found_by_hour"] = _prune(stats["found_by_hour"], retention)
+            stats["found_total"] += found_count
+            stats["last_found_at"] = utc_now()
+
+        for timestamp in listed_timestamps:
+            try:
+                listed_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+            except (OverflowError, OSError, ValueError, TypeError):
+                continue
+            bucket = hour_key(listed_at)
+            stats["listed_by_hour"][bucket] = stats["listed_by_hour"].get(bucket, 0) + 1
+        stats["listed_by_hour"] = _prune(stats["listed_by_hour"], retention)
+
+        record["stats"] = stats
+
+
+def reset_stats(url_id: str) -> bool:
+    with get_store().transaction() as data:
+        record = _find(data, url_id)
+        if record is None:
+            return False
+        record["stats"] = empty_stats()
+        return True
 
 
 def record_seen(url_id: str, item_ids: Iterable[int], *, seeded: bool = True) -> None:

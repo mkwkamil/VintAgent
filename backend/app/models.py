@@ -42,6 +42,17 @@ class URLUpdate(BaseModel):
         return None if value is None else _validate_url(value)
 
 
+class StatsSummary(BaseModel):
+    found_total: int = 0
+    found_last_hour: int = 0
+    found_last_24h: int = 0
+    checks: int = 0
+    errors: int = 0
+    error_rate: float = 0.0
+    found_per_hour: float = 0.0
+    last_found_at: str | None = None
+
+
 class URLOut(BaseModel):
     id: str
     name: str
@@ -51,9 +62,12 @@ class URLOut(BaseModel):
     last_checked_at: str | None = None
     last_error: str | None = None
     thread_alive: bool = False
+    stats: StatsSummary = StatsSummary()
 
     @classmethod
     def from_record(cls, record: dict[str, Any], *, thread_alive: bool) -> "URLOut":
+        from .analytics import summarize
+
         return cls(
             id=record["id"],
             name=record["name"],
@@ -63,7 +77,33 @@ class URLOut(BaseModel):
             last_checked_at=record.get("last_checked_at"),
             last_error=record.get("last_error"),
             thread_alive=thread_alive,
+            stats=StatsSummary(**summarize(record)),
         )
+
+
+class TimelinePoint(BaseModel):
+    hour: str
+    count: int
+
+
+class URLStats(BaseModel):
+    summary: StatsSummary
+    found_timeline: list[TimelinePoint]
+    listed_by_hour_of_day: list[int]
+    found_by_hour_of_day: list[int]
+    timeline_hours: int
+
+
+class SessionStatus(BaseModel):
+    has_session: bool
+    cookie_count: int = 0
+    access_expires_at: str | None = None
+    access_expires_in_seconds: float | None = None
+    refresh_expires_at: str | None = None
+    updated_at: str | None = None
+    browser_available: bool = False
+    last_bootstrap_at: str | None = None
+    last_bootstrap_error: str | None = None
 
 
 class ThreadStats(BaseModel):

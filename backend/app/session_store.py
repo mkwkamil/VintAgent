@@ -5,6 +5,9 @@ moment a new one is issued. That makes the cookie set a single piece of shared
 mutable state — every scraper thread must read from and write to this store, and
 only one refresh may be in flight at a time (``refresh_lock``), otherwise threads
 would invalidate each other's tokens.
+
+Cookies are never configured by hand: they are produced by the headless browser
+bootstrap and survive restarts through ``session.json``.
 """
 
 from __future__ import annotations
@@ -28,15 +31,6 @@ ACCESS_TOKEN_COOKIE = "access_token_web"
 REFRESH_TOKEN_COOKIE = "refresh_token_web"
 
 
-def parse_cookie_header(raw: str) -> dict[str, str]:
-    cookies: dict[str, str] = {}
-    for chunk in raw.split(";"):
-        name, separator, value = chunk.strip().partition("=")
-        if separator and name:
-            cookies[name] = value
-    return cookies
-
-
 def jwt_expiry(token: str | None) -> datetime | None:
     """Read the ``exp`` claim without verifying the signature (we are not the audience)."""
     if not token or token.count(".") != 2:
@@ -57,26 +51,15 @@ class SessionStore:
         self.refresh_lock = threading.Lock()
         self._cookies: dict[str, str] = {}
         self._version = 0
+        self._updated_at: datetime | None = None
         self._load()
 
     # ------------------------------------------------------------------ loading
 
     def _load(self) -> None:
-        env_cookies = parse_cookie_header(self._settings.vinted_cookie)
-        stored = self._read_file()
-
-        # Whichever refresh token lives longer is the newer session: that way a
-        # freshly pasted VINTED_COOKIE wins over a stale file, and a file written
-        # by an earlier run wins over the by-now-expired value in .env.
-        env_exp = jwt_expiry(env_cookies.get(REFRESH_TOKEN_COOKIE))
-        stored_exp = jwt_expiry(stored.get(REFRESH_TOKEN_COOKIE))
-        if stored and (env_exp is None or (stored_exp is not None and stored_exp > env_exp)):
-            self._cookies = {**env_cookies, **stored}
+        self._cookies = self._read_file()
+        if self._cookies:
             logger.info("Loaded Vinted session from %s", self._settings.session_file)
-        else:
-            self._cookies = {**stored, **env_cookies}
-            if env_cookies:
-                logger.info("Loaded Vinted session from VINTED_COOKIE")
 
     def _read_file(self) -> dict[str, str]:
         path = self._settings.session_file
@@ -93,9 +76,10 @@ class SessionStore:
 
     def _persist(self) -> None:
         path = self._settings.session_file
+        self._updated_at = datetime.now(tz=timezone.utc)
         payload: dict[str, Any] = {
             "cookies": self._cookies,
-            "updated_at": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
+            "updated_at": self._updated_at.isoformat(timespec="seconds"),
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,9 +117,43 @@ class SessionStore:
             self._persist()
             return self._version
 
+    def has_access_token(self) -> bool:
+        with self._lock:
+            return bool(self._cookies.get(ACCESS_TOKEN_COOKIE))
+
+    def access_token(self) -> str | None:
+        with self._lock:
+            return self._cookies.get(ACCESS_TOKEN_COOKIE)
+
+    def clear(self) -> None:
+        """Drop the cookie jar so the next poll bootstraps a brand new session."""
+        with self._lock:
+            self._cookies = {}
+            self._version += 1
+            self._persist()
+
     def access_token_expiry(self) -> datetime | None:
         with self._lock:
             return jwt_expiry(self._cookies.get(ACCESS_TOKEN_COOKIE))
+
+    def refresh_token_expiry(self) -> datetime | None:
+        with self._lock:
+            return jwt_expiry(self._cookies.get(REFRESH_TOKEN_COOKIE))
+
+    def status(self) -> dict[str, Any]:
+        access_expiry = self.access_token_expiry()
+        refresh_expiry = self.refresh_token_expiry()
+        with self._lock:
+            updated_at = self._updated_at
+            cookie_count = len(self._cookies)
+        return {
+            "has_session": cookie_count > 0,
+            "cookie_count": cookie_count,
+            "access_expires_at": access_expiry.isoformat(timespec="seconds") if access_expiry else None,
+            "access_expires_in_seconds": self.seconds_until_expiry(),
+            "refresh_expires_at": refresh_expiry.isoformat(timespec="seconds") if refresh_expiry else None,
+            "updated_at": updated_at.isoformat(timespec="seconds") if updated_at else None,
+        }
 
     def seconds_until_expiry(self) -> float | None:
         expiry = self.access_token_expiry()
@@ -148,6 +166,15 @@ class SessionStore:
         if remaining is None:
             return False
         return remaining <= self._settings.session_refresh_margin_seconds
+
+    def needs_bootstrap(self) -> bool:
+        """True when no HTTP refresh can save us and only a browser will do."""
+        if not self.has_access_token():
+            return True
+        refresh_expiry = self.refresh_token_expiry()
+        if refresh_expiry is None:
+            return not self.has_access_token()
+        return refresh_expiry <= datetime.now(tz=timezone.utc)
 
 
 _store: SessionStore | None = None

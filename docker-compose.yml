@@ -10,6 +10,10 @@ services:
     volumes:
       - ./backend/data:/app/data
     restart: unless-stopped
-    # Guardrails for the 1GB GCP Free Tier VM
-    mem_limit: 512m
+    # Chromium needs a bigger /dev/shm than Docker's 64 MB default, otherwise a
+    # cookie bootstrap can crash the tab.
+    shm_size: 256m
+    # Guardrails for the 1GB GCP Free Tier VM. The app itself sits around 60 MB;
+    # the headroom is for the short-lived Chromium bootstrap.
+    mem_limit: 700m
     cpus: 1.0

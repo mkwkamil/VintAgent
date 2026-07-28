@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__, storage
 from .api import api_router
 from .config import get_settings
+from .session_keeper import get_keeper
 from .storage import STATUS_RUNNING, STATUS_STOPPED
 from .thread_manager import MaxThreadsReached, get_manager
 
@@ -46,10 +47,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("VintAgent %s starting (data file: %s)", __version__, settings.data_file)
     if not settings.telegram_enabled:
         logger.warning("Telegram is not configured; notifications will be skipped")
+    get_keeper().start()
     _resume_running_urls()
     try:
         yield
     finally:
+        get_keeper().stop()
         get_manager().stop_all()
         logger.info("VintAgent stopped")
 

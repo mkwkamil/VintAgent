@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from curl_cffi import requests as cffi
@@ -54,22 +55,47 @@ def send_message(text: str, settings: Settings | None = None) -> bool:
     )
 
 
+def _join(parts: list[str], separator: str = " · ") -> str | None:
+    filtered = [part for part in parts if part]
+    return separator.join(filtered) if filtered else None
+
+
 def format_item(item: "VintedItem", source_name: str) -> str:
+    """Caption of a listing card: price first, then the details, then context."""
+    esc = html.escape
+    price_line = None
+    if item.price:
+        price_line = f"💰 <b>{esc(item.price)}</b>"
+        if item.total_price:
+            price_line += f" <i>(z ochroną {esc(item.total_price)})</i>"
+
+    listed_at = None
+    if item.listed_ts:
+        listed_at = datetime.fromtimestamp(item.listed_ts, tz=timezone.utc).astimezone().strftime("%H:%M")
+
     lines = [
-        f"🆕 <b>{html.escape(item.title)}</b>",
-        f"💰 {html.escape(item.price)}" if item.price else None,
-        f"🏷 {html.escape(item.brand)}" if item.brand else None,
-        f"📏 {html.escape(item.size)}" if item.size else None,
-        f"🔍 {html.escape(source_name)}",
-        f'\n<a href="{html.escape(item.url, quote=True)}">Zobacz na Vinted ↗</a>',
+        f"🆕 <b>{esc(item.title)}</b>",
+        price_line,
+        _join([f"🏷 {esc(item.brand)}" if item.brand else "", f"📏 {esc(item.size)}" if item.size else ""]),
+        f"✨ {esc(item.condition)}" if item.condition else None,
+        "",
+        _join([f"🔎 {esc(source_name)}", f"🕒 {listed_at}" if listed_at else ""]),
     ]
-    return "\n".join(line for line in lines if line)
+    return "\n".join(line for line in lines if line is not None)
 
 
-def send_item(item: "VintedItem", source_name: str, settings: Settings | None = None) -> bool:
+def send_item(
+    item: "VintedItem",
+    source_name: str,
+    settings: Settings | None = None,
+    source_url: str | None = None,
+) -> bool:
     settings = settings or get_settings()
     caption = format_item(item, source_name)
-    keyboard = {"inline_keyboard": [[{"text": "Kup teraz ↗", "url": item.url}]]}
+    buttons = [{"text": "🛒 Kup teraz", "url": item.url}]
+    if source_url:
+        buttons.append({"text": "🔎 Wyszukiwanie", "url": source_url})
+    keyboard = {"inline_keyboard": [buttons]}
 
     if item.photo_url:
         sent = _post(

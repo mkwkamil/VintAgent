@@ -6,13 +6,15 @@ Frontend (Vite + React + TS) i backend (FastAPI) działają w **jednym kontenerz
 
 ## Architektura
 
-- **Jeden kontener**, multi-stage build: `node:20-alpine` buduje frontend, `python:3.11-slim` uruchamia backend.
+- **Jeden kontener**, multi-stage build: `node:24-alpine` buduje frontend, `python:3.11-slim` uruchamia backend.
 - **Baza danych:** plik `backend/data/data.json` (bez SQL), zapisy atomowe pod blokadą wątkową.
-- **Scraper:** wątki `threading.Thread` (maks. 6 równocześnie), `curl_cffi` z impersonacją Chrome,
+- **Scraper:** wątki `threading.Thread` (maks. 10 równocześnie), `curl_cffi` z impersonacją Chrome,
   losowy interwał 10–15 s, odporność na błędy 403/429.
+- **Sesja Vinted:** w pełni automatyczna — odświeżanie tokenu po HTTP, a headless Chromium tylko
+  wtedy, gdy trzeba przejść wyzwanie Cloudflare.
 - **Powiadomienia:** Telegram Bot API (token i chat ID w `.env`).
-- **Dashboard:** wyłącznie zarządzanie URL-ami (start/stop/edycja/usuwanie). Zescrapowane ogłoszenia
-  **nie są** wyświetlane w UI — trafiają tylko na Telegram.
+- **Dashboard:** zarządzanie URL-ami (start/stop/edycja/usuwanie) plus statystyki każdego linku.
+  Zescrapowane ogłoszenia **nie są** wyświetlane w UI — trafiają tylko na Telegram.
 
 ## Struktura
 
@@ -26,13 +28,19 @@ VintAgent/
 │   ├── data/               # data.json (wolumen, poza obrazem)
 │   └── app/
 │       ├── main.py         # FastAPI: /api + StaticFiles na /
+│       ├── scraper.py      # curl_cffi + translacja URL-i katalogu na API
+│       ├── session_store.py    # wspólne cookies + zapis do session.json
+│       ├── browser_session.py  # headless Chromium: bootstrap cookies
+│       ├── session_keeper.py   # watchdog odnawiający sesję w tle
+│       ├── analytics.py    # agregacja kubełków godzinowych na wykresy
 │       └── api/
 └── frontend/               # Vite + React + TypeScript + Tailwind 4
     └── src/
         ├── api/client.ts   # fetch + JWT
         ├── auth/           # AuthContext
-        ├── components/     # TopNav, UrlCard, UrlFormModal, StatusBadge
-        └── pages/          # Login, Dashboard
+        ├── components/     # TopNav, UrlCard, BarChart, UrlFormModal, StatusBadge
+        ├── lib/            # formatowanie dat, router na hashu
+        └── pages/          # Login, Dashboard, UrlDetail
 ```
 
 ## Uruchomienie (Docker)
@@ -52,9 +60,14 @@ Aplikacja: http://localhost:8000 &nbsp;·&nbsp; health check: http://localhost:8
 | POST | `/api/auth/login` | Logowanie admina, zwraca token JWT |
 | GET | `/api/auth/me` | Weryfikacja tokenu |
 | GET | `/api/stats` | Liczba aktywnych wątków, limit, status Telegrama |
+| GET | `/api/session` | Stan sesji Vinted (ważność tokenu, dostępność Chromium) |
+| POST | `/api/session/refresh` | Wymusza odnowienie cookies przez headless Chromium |
 | POST | `/api/telegram/test` | Wysyła wiadomość testową na Telegram |
-| GET | `/api/urls` | Lista śledzonych URL-i |
+| GET | `/api/urls` | Lista śledzonych URL-i wraz z podsumowaniem statystyk |
 | POST | `/api/urls` | Dodanie URL-a (start ręczny) |
+| GET | `/api/urls/{id}` | Szczegóły pojedynczego URL-a |
+| GET | `/api/urls/{id}/stats` | Serie do wykresów (`hours`, `tz_offset_minutes`) |
+| POST | `/api/urls/{id}/stats/reset` | Czyści historię statystyk linku |
 | PATCH | `/api/urls/{id}` | Zmiana nazwy lub URL-a |
 | DELETE | `/api/urls/{id}` | Usunięcie URL-a i zatrzymanie wątku |
 | POST | `/api/urls/{id}/start` | Start wątku (409 przy limicie wątków) |
@@ -65,31 +78,36 @@ Wszystkie endpointy poza `/api/health` i `/api/auth/login` wymagają nagłówka 
 Pierwsze odpytanie po starcie URL-a to **seed**: zapisuje aktualne ogłoszenia jako znane i nie wysyła
 powiadomień. Dopiero kolejne, nowe ogłoszenia trafiają na Telegram.
 
-## Cloudflare i `VINTED_COOKIE`
+## Sesja Vinted (w pełni automatyczna)
 
 Vinted stoi za Cloudflare, który dla części adresów IP odpowiada na anonimowe zapytania
-**wyzwaniem JavaScript**. Żadne nagłówki ani profil TLS tego nie obejdą (dlatego scraper zgłasza wtedy
-`Cloudflare wymaga weryfikacji JS`). Rozwiązanie: pożycz sesję z własnej przeglądarki.
+**wyzwaniem JavaScript**. Żadne nagłówki ani profil TLS tego nie obejdą — potrzebna jest przeglądarka,
+która wykona ten skrypt. VintAgent robi to sam, w trzech poziomach:
 
-1. Zaloguj się na Vinted w przeglądarce.
-2. DevTools → Network → dowolne zapytanie do `vinted.pl` → Request Headers → skopiuj całą wartość `Cookie`.
-3. Wklej ją do `backend/.env` jako `VINTED_COOKIE=...` i zrestartuj kontener.
+1. **Zwykłe zapytanie HTTP** (`curl_cffi`) — tak działa każde odpytanie katalogu.
+2. **Odświeżenie tokenu** — na 10 minut przed wygaśnięciem `access_token_web` leci
+   `POST /web/api/auth/refresh`, który zwraca nową parę tokenów (kilka kB ruchu).
+3. **Headless Chromium** — tylko gdy nie ma z czego odświeżać albo Cloudflare zablokował zapytanie.
+   Przeglądarka wchodzi na stronę główną, przechodzi wyzwanie, oddaje cookies i natychmiast się zamyka.
 
-Kluczowe są `access_token_web`, `refresh_token_web`, `anon_id` i `cf_clearance`. Jeśli Cloudflare
-Twojego IP nie wyzwala (często tak jest na VM-kach w GCP), scraper działa bez tej zmiennej.
+Cookies lądują w `backend/data/session.json` (prawa `0600`) i przeżywają restart kontenera.
+Nie ma czego wklejać do `.env`.
 
-### Automatyczne odnawianie sesji
+Chromium startuje **na żądanie**, nie w pętli czasowej, więc w normalnej pracy proces aplikacji zajmuje
+tyle co samo FastAPI. Na czas bootstrapu (kilka sekund) dochodzi ~250 MB RAM, a `BROWSER_MIN_INTERVAL_SECONDS`
+pilnuje, żeby nieudane próby nie zamieniły się w pętlę uruchomień. Sesją opiekuje się dodatkowo
+watchdog (`app/session_keeper.py`), który co 5 minut sprawdza jej ważność, więc odnowienie następuje
+zanim wątki zobaczą błąd.
 
-`access_token_web` żyje tylko 2 h, ale obok niego jest `refresh_token_web` ważny 7 dni. VintAgent na
-10 minut przed wygaśnięciem (`SESSION_REFRESH_MARGIN_SECONDS`) woła `POST /web/api/auth/refresh`,
-dostaje nową parę tokenów i zapisuje ją do `backend/data/session.json` (prawa `0600`). Ponieważ przy
-każdym odnowieniu refresh token dostaje **nowe 7 dni**, jedno wklejenie cookies wystarcza tak długo,
-jak długo aplikacja działa.
+W obrazie ląduje tylko *headless shell* Chromium (połowa rozmiaru pełnej przeglądarki, dokładnie to,
+czego używa `launch(headless=True)`), a `docker-compose.yml` podnosi `shm_size` do 256 MB — przy
+domyślnych 64 MB Dockera karta Chromium potrafi się wywrócić. Gotowy obraz to ~1,5 GB dysku przy
+~60 MB RAM w spoczynku.
 
 Ponieważ Vinted rotuje oba tokeny naraz, odnowieniem zajmuje się tylko jeden wątek — pozostałe czekają
-i podchwytują nowe cookies ze wspólnego magazynu (`app/session_store.py`). Przy starcie wygrywa ten
-zestaw cookies, którego refresh token jest ważny dłużej, więc świeżo wklejone `VINTED_COOKIE`
-nadpisuje stary `session.json`, a po restarcie kontenera używany jest zapisany, odnowiony zestaw.
+i podchwytują nowe cookies ze wspólnego magazynu (`app/session_store.py`).
+
+Stan sesji widać w pasku nawigacji (`Sesja: …`); kliknięcie wymusza odnowienie przeglądarką.
 
 Testy tej warstwy (offline, bez ruchu do Vinted):
 
@@ -97,8 +115,17 @@ Testy tej warstwy (offline, bez ruchu do Vinted):
 cd backend && python scripts/session_test.py
 ```
 
-Uwaga przy wdrożeniu: `cf_clearance` i `datadome` są związane z adresem IP i User-Agentem, dla których
-powstały. Cookies z przeglądarki na laptopie mogą nie zadziałać na VM-ce z innym IP.
+## Statystyki
+
+Każdy link jest osobnym menedżerem: kliknięcie karty na dashboardzie otwiera widok ze statystykami.
+
+- **Znalezione ogłoszenia w czasie** — kubełki godzinowe za 6 h / 24 h / 3 dni / 7 dni.
+- **O której godzinie wystawiane są ogłoszenia** — rozkład dobowy liczony z czasu publikacji oferty
+  (nie z momentu wykrycia), w czasie lokalnym przeglądarki.
+- Kafelki: znalezione łącznie / w ostatniej dobie, średnia na godzinę, liczba sprawdzeń i błędów.
+
+Dane to wyłącznie liczniki w kubełkach godzinowych trzymane w `data.json` (`STATS_RETENTION_HOURS`,
+domyślnie 7 dni) — treści ogłoszeń nadal nie ma w UI ani w bazie, trafiają tylko na Telegram.
 
 Test dymny API (wymaga uruchomionego backendu):
 

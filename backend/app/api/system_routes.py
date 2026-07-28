@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from .. import telegram
 from ..auth import require_admin
+from ..browser_session import get_bootstrap
 from ..config import Settings, get_settings
-from ..models import MessageResponse, ThreadStats
+from ..models import MessageResponse, SessionStatus, ThreadStats
+from ..session_store import get_session_store
 from ..thread_manager import get_manager
 
 router = APIRouter(tags=["system"])
@@ -31,6 +33,28 @@ def stats(
         max_threads=manager.max_threads,
         telegram_enabled=settings.telegram_enabled,
     )
+
+
+@router.get("/session", response_model=SessionStatus)
+def session_status(_: str = Depends(require_admin)) -> SessionStatus:
+    return SessionStatus(**get_session_store().status(), **get_bootstrap().status())
+
+
+@router.post("/session/refresh", response_model=SessionStatus)
+def session_refresh(_: str = Depends(require_admin)) -> SessionStatus:
+    """Force a browser bootstrap; the polling threads pick the cookies up on their next request."""
+    bootstrap = get_bootstrap()
+    if not bootstrap.status()["browser_available"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Automatyczne odnawianie sesji jest niedostępne (brak Chromium)",
+        )
+    if not bootstrap.ensure_session(force=True):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=bootstrap.status()["last_bootstrap_error"] or "Nie udało się odnowić sesji Vinted",
+        )
+    return SessionStatus(**get_session_store().status(), **bootstrap.status())
 
 
 @router.post("/telegram/test", response_model=MessageResponse)

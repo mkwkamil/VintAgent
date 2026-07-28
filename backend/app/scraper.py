@@ -1,8 +1,9 @@
 """Lightweight Vinted catalog scraper.
 
-No headless browser: ``curl_cffi`` reproduces a real Chrome TLS fingerprint, which
-combined with rotated browser-like headers and a cookie bootstrap is what keeps
-plain HTTP polling from being flagged instantly.
+Polling itself never opens a browser: ``curl_cffi`` reproduces a real Chrome TLS
+fingerprint, which combined with browser-like headers and a valid cookie jar is
+enough for plain HTTP requests. Only when the session cannot be recovered over
+HTTP does :mod:`app.browser_session` step in with headless Chromium.
 """
 
 from __future__ import annotations
@@ -11,11 +12,13 @@ import logging
 import random
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from curl_cffi import requests as cffi
 
+from .browser_session import get_bootstrap
 from .config import Settings, get_settings
 from .session_store import get_session_store
 
@@ -54,9 +57,8 @@ SCALAR_PARAMS = {
 CATALOG_PATH_RE = re.compile(r"/catalog/(\d+)")
 
 # Cloudflare's managed JS challenge cannot be solved by any header or TLS tweak;
-# it needs either a real browser or cookies borrowed from one.
+# it needs a real browser, which is what the Chromium bootstrap provides.
 CHALLENGE_MARKERS = ("challenge-platform", "cf-chl", "Just a moment")
-COOKIE_HINT = "ustaw VINTED_COOKIE w .env (skopiuj Cookie z zalogowanej przeglądarki)"
 
 
 class VintedBlocked(RuntimeError):
@@ -76,9 +78,13 @@ class VintedItem:
     title: str
     url: str
     price: str = ""
+    total_price: str = ""
     brand: str = ""
     size: str = ""
+    condition: str = ""
     photo_url: str | None = None
+    # Unix timestamp of when the listing went up, used by the hour-of-day chart.
+    listed_ts: int | None = None
 
 
 def build_api_url(catalog_url: str, settings: Settings) -> str:
@@ -131,8 +137,19 @@ def _price(raw: Any) -> str:
         currency = raw.get("currency_code") or raw.get("currency") or ""
         if amount is None:
             return ""
-        return f"{amount} {currency}".strip()
+        return f"{_amount(amount)} {currency}".strip()
     return str(raw) if raw not in (None, "") else ""
+
+
+def _amount(raw: Any) -> str:
+    """Vinted sends "15.0"; show "15" and "18,65" the way a Polish price reads."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return str(raw)
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.2f}".replace(".", ",")
 
 
 def _photo_url(raw: Any) -> str | None:
@@ -143,6 +160,27 @@ def _photo_url(raw: Any) -> str | None:
         if isinstance(thumb, dict) and thumb.get("type") in {"thumb310x430", "thumb428x624"}:
             return thumb.get("url")
     return raw.get("url")
+
+
+def _listed_ts(raw: dict[str, Any]) -> int | None:
+    """When the listing appeared; Vinted only exposes it via the photo upload."""
+    candidates: list[Any] = [raw.get("created_at_ts")]
+    photo = raw.get("photo")
+    if isinstance(photo, dict):
+        high_res = photo.get("high_resolution")
+        if isinstance(high_res, dict):
+            candidates.append(high_res.get("timestamp"))
+        candidates.append(photo.get("high_resolution_timestamp"))
+
+    for candidate in candidates:
+        if isinstance(candidate, (int, float)) and candidate > 0:
+            return int(candidate)
+        if isinstance(candidate, str):
+            try:
+                return int(datetime.fromisoformat(candidate.replace("Z", "+00:00")).timestamp())
+            except ValueError:
+                continue
+    return None
 
 
 class VintedScraper:
@@ -165,7 +203,7 @@ class VintedScraper:
             self._session = None
 
     def refresh_session(self) -> None:
-        """Rotate identity and re-bootstrap cookies from the Vinted homepage."""
+        """Rotate identity and make sure a usable cookie jar is in place."""
         self.close()
         self._profile = random.choice(self.settings.impersonate_profiles)
         self._accept_language = random.choice(ACCEPT_LANGUAGES)
@@ -173,21 +211,35 @@ class VintedScraper:
         self._cookie_version = -1
         self._sync_cookies()
 
-        response = self._session.get(
-            self.settings.vinted_base_url,
-            headers=self._browser_headers(),
-            timeout=self.settings.request_timeout_seconds,
-            allow_redirects=True,
-        )
-        if response.status_code >= 400:
-            if _is_challenge(response):
-                logger.warning(
-                    "Cloudflare serves a JS challenge for %s; anonymous polling will fail, %s",
-                    self.settings.vinted_base_url,
-                    COOKIE_HINT,
-                )
-            else:
-                logger.warning("Session bootstrap returned HTTP %s", response.status_code)
+        if not self._store.needs_bootstrap() and self._http_bootstrap():
+            return
+        # Either there is nothing to reuse or Vinted refused a plain request:
+        # hand over to Chromium, which can also clear a Cloudflare challenge.
+        if get_bootstrap().ensure_session():
+            self._sync_cookies()
+
+    def _http_bootstrap(self) -> bool:
+        """Warm up cookies with a cheap homepage request. False if it was blocked."""
+        assert self._session is not None
+        try:
+            response = self._session.get(
+                self.settings.vinted_base_url,
+                headers=self._browser_headers(),
+                timeout=self.settings.request_timeout_seconds,
+                allow_redirects=True,
+            )
+        except Exception:
+            logger.warning("Homepage bootstrap request failed", exc_info=True)
+            return False
+
+        if response.status_code < 400:
+            self._cookie_version = self._store.update(dict(self._session.cookies.items()))
+            return True
+        if _is_challenge(response):
+            logger.info("Cloudflare challenge on the homepage, falling back to Chromium")
+        else:
+            logger.info("Homepage bootstrap returned HTTP %s, falling back to Chromium", response.status_code)
+        return False
 
     def _sync_cookies(self) -> None:
         """Copy the shared cookie jar into this thread's session if it moved on."""
@@ -201,9 +253,22 @@ class VintedScraper:
             self._session.cookies.set(name, value, domain=domain)
         self._cookie_version = version
 
+    def renew_session(self) -> bool:
+        """Get back to a working session, cheapest option first."""
+        if self._session is None:
+            self._session = cffi.Session(impersonate=self._profile)
+            self._cookie_version = -1
+            self._sync_cookies()
+        if self._refresh_access_token():
+            return True
+        if get_bootstrap().ensure_session():
+            self._sync_cookies()
+            return True
+        return False
+
     def _refresh_access_token(self) -> bool:
         """Renew the rotating token pair; only one thread may do this at a time."""
-        if self._session is None or not self._store.configured:
+        if self._session is None or self._store.needs_bootstrap():
             return False
 
         with self._store.refresh_lock:
@@ -246,33 +311,38 @@ class VintedScraper:
     def _api_headers(self, referer: str) -> dict[str, str]:
         parsed = urlparse(referer)
         origin = f"{parsed.scheme}://{parsed.netloc}"
-        return {
+        headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": self._accept_language,
             "Referer": referer,
             "Origin": origin,
             "X-Requested-With": "XMLHttpRequest",
         }
+        # Vinted accepts the token from the cookie alone, but the web app also
+        # sends it as a bearer and some endpoints are stricter about it.
+        token = self._store.access_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
 
     def fetch_items(self, catalog_url: str) -> list[VintedItem]:
         if self._session is None:
             self.refresh_session()
 
         self._sync_cookies()
-        if self._store.needs_refresh():
+        if self._store.needs_bootstrap():
+            self.refresh_session()
+        elif self._store.needs_refresh():
             self._refresh_access_token()
 
         api_url = build_api_url(catalog_url, self.settings)
         response = self._request(api_url, catalog_url)
 
-        # A stale token is the common case: renew it and retry before falling back
-        # to rotating the whole identity.
+        # A stale token is the common case: renew it and retry before rotating
+        # the whole identity through the browser.
         if response.status_code in (401, 403, 429):
             logger.warning("Catalog request blocked (%s), renewing session", response.status_code)
-            if self._refresh_access_token():
-                response = self._request(api_url, catalog_url)
-            else:
-                self.refresh_session()
+            if self.renew_session():
                 response = self._request(api_url, catalog_url)
 
         if response.status_code in (401, 403, 429):
@@ -294,13 +364,17 @@ class VintedScraper:
         )
 
     def _blocked_hint(self, response: Any) -> str:
-        if _is_challenge(response):
-            return f"Cloudflare wymaga weryfikacji JS, {COOKIE_HINT}"
         if response.status_code == 429:
             return "limit zapytań, zwiększ POLL_MIN_SECONDS"
-        if not self.settings.vinted_cookie:
-            return f"brak ważnej sesji anonimowej, {COOKIE_HINT}"
-        return "cookies z VINTED_COOKIE wygasły, skopiuj je ponownie z przeglądarki"
+        bootstrap = get_bootstrap()
+        if not bootstrap.status()["browser_available"]:
+            return "Cloudflare blokuje zapytania, a automatyczne odnawianie sesji jest wyłączone"
+        error = bootstrap.status()["last_bootstrap_error"]
+        if error:
+            return f"odnawianie sesji przeglądarką nie powiodło się: {error}"
+        if _is_challenge(response):
+            return "Cloudflare wymaga weryfikacji JS, sesja zostanie odnowiona automatycznie"
+        return "sesja Vinted wygasła, trwa automatyczne odnawianie"
 
     def _parse_item(self, raw: Any) -> VintedItem | None:
         if not isinstance(raw, dict):
@@ -311,12 +385,17 @@ class VintedScraper:
             return None
 
         url = raw.get("url") or f"{self.settings.vinted_base_url.rstrip('/')}/items/{item_id}"
+        price = _price(raw.get("price"))
+        total_price = _price(raw.get("total_item_price"))
         return VintedItem(
             id=item_id,
             title=str(raw.get("title") or "Bez tytułu"),
             url=url,
-            price=_price(raw.get("total_item_price") or raw.get("price")),
+            price=price or total_price,
+            total_price=total_price if total_price != price else "",
             brand=str(raw.get("brand_title") or ""),
             size=str(raw.get("size_title") or ""),
+            condition=str(raw.get("status") or ""),
             photo_url=_photo_url(raw.get("photo")),
+            listed_ts=_listed_ts(raw),
         )

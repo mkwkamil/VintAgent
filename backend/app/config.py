@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     jwt_expire_hours: int = 168
 
     # Scraper
-    max_threads: int = 6
+    max_threads: int = 10
     poll_min_seconds: float = 10.0
     poll_max_seconds: float = 15.0
     blocked_backoff_min_seconds: float = 60.0
@@ -34,13 +34,24 @@ class Settings(BaseSettings):
     # matching TLS fingerprint AND browser headers, so the User-Agent must come
     # from the profile rather than being overridden by hand.
     vinted_impersonate: str = "chrome,chrome136,chrome142"
-    # Raw Cookie header copied from a logged-in browser session, e.g.
-    # "access_token_web=...; anon_id=...; cf_clearance=...". Required whenever
-    # Cloudflare answers anonymous requests with a JS challenge.
-    vinted_cookie: str = ""
     # Vinted access tokens live 2h and refresh tokens 7 days, both rotating on
     # every refresh; renew this many seconds before expiry.
     session_refresh_margin_seconds: float = 600.0
+
+    # Headless Chromium fallback: the only way past a Cloudflare JS challenge.
+    # It runs on demand (missing or dead session), not on a schedule, so the
+    # steady-state memory cost is zero.
+    browser_bootstrap_enabled: bool = True
+    browser_min_interval_seconds: float = 120.0
+    browser_timeout_seconds: float = 45.0
+    browser_executable_path: str = ""
+    browser_locale: str = "pl-PL"
+    browser_timezone: str = "Europe/Warsaw"
+    # How often the watchdog verifies the session is still good.
+    session_check_interval_seconds: float = 300.0
+
+    # Per-URL statistics: hourly buckets, kept for a week.
+    stats_retention_hours: int = 168
 
     # Telegram
     telegram_bot_token: str = ""
