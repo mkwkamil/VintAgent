@@ -24,10 +24,7 @@ WORKDIR /app
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Chromium is only launched to re-issue Vinted cookies when Cloudflare blocks a
-# plain request, so it sits idle on disk most of the time. The headless shell is
-# half the size of the full browser and is what Playwright picks for
-# ``launch(headless=True)`` anyway.
+# Chromium for on-demand Vinted cookie bootstrap (headless shell only).
 RUN playwright install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 

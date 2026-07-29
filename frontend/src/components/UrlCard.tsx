@@ -95,7 +95,7 @@ export default function UrlCard({ item, busy, startDisabled, onOpen, onStart, on
             className="rounded-lg px-3.5 py-1.5 font-medium transition-opacity hover:opacity-85 disabled:opacity-45"
             style={{ background: 'var(--surface-raised)', border: '1px solid var(--border-strong)' }}
           >
-            Stop
+            Zatrzymaj
           </button>
         ) : (
           <button
@@ -106,7 +106,7 @@ export default function UrlCard({ item, busy, startDisabled, onOpen, onStart, on
             className="rounded-lg px-3.5 py-1.5 font-medium text-white transition-opacity hover:opacity-85 disabled:opacity-45"
             style={{ background: 'var(--accent)' }}
           >
-            Start
+            Uruchom
           </button>
         )}
 

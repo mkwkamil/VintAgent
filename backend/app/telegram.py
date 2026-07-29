@@ -144,9 +144,8 @@ def send_message(
     return _post("sendMessage", payload, settings)
 
 
-def format_item(item: "VintedItem", source_name: str = "") -> str:
-    """Plain English labels; Quality stays in Polish as returned by Vinted."""
-    del source_name  # kept for call-site compatibility; not shown on the card
+def format_item(item: "VintedItem", _source_name: str = "") -> str:
+    """English field labels; Quality value stays as returned by Vinted."""
     esc = html.escape
     lines: list[str] = [f"Title: <b>{esc(item.title)}</b>"]
     if item.brand:

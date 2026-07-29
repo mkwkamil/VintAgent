@@ -42,9 +42,8 @@ export default function SessionImportModal({ onClose, onSubmit }: Props) {
       >
         <h2 className="text-lg font-semibold">Wklej sesję Vinted</h2>
         <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-          Na IP datacenter (GCP) Cloudflare często nie wydaje tokenu headlessowi. Skopiuj Cookie z
-          lokalnej przeglądarki (DevTools → Network → dowolne zapytanie do vinted.pl → Request
-          Headers → Cookie) albo przenieś plik <code>session.json</code>.
+          Gdy Cloudflare blokuje IP serwera, wklej nagłówek Cookie z lokalnej przeglądarki
+          (DevTools → Network → vinted.pl → Cookie) albo skopiuj plik <code>session.json</code>.
         </p>
 
         <textarea
