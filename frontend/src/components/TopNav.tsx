@@ -13,24 +13,44 @@ type Props = {
   onImportSession: () => void
 }
 
-
 const pillStyle = {
   borderColor: 'var(--border)',
   background: 'var(--surface)',
 } as const
 
-function sessionLabel(session: SessionStatus | null, refreshing: boolean): { text: string; color: string } {
-  if (refreshing) return { text: 'Sesja: odnawianie…', color: 'var(--warning)' }
-  if (!session) return { text: 'Sesja: –', color: 'var(--muted)' }
+const iconBtn =
+  'inline-flex h-9 w-9 items-center justify-center rounded-xl border transition hover:opacity-90 disabled:opacity-45 sm:h-10 sm:w-10'
+
+function sessionMeta(
+  session: SessionStatus | null,
+  refreshing: boolean,
+): { label: string; color: string; title: string } {
+  if (refreshing) {
+    return { label: '…', color: 'var(--warning)', title: 'Odnawianie sesji Vinted…' }
+  }
+  if (!session) {
+    return { label: '–', color: 'var(--muted)', title: 'Brak statusu sesji' }
+  }
   if (!session.has_session) {
     return {
-      text: session.browser_available ? 'Sesja: pobieranie' : 'Sesja: brak',
+      label: session.browser_available ? '…' : 'brak',
       color: session.browser_available ? 'var(--warning)' : 'var(--danger)',
+      title: session.browser_available
+        ? 'Pobieranie sesji Vinted'
+        : 'Brak sesji Vinted — wklej cookies lub uruchom bootstrap',
     }
   }
   const seconds = session.access_expires_in_seconds
-  if (seconds !== null && seconds <= 0) return { text: 'Sesja: wygasła', color: 'var(--warning)' }
-  return { text: `Sesja: ${formatDuration(seconds)}`, color: 'var(--success)' }
+  if (seconds !== null && seconds <= 0) {
+    return { label: '0', color: 'var(--warning)', title: 'Sesja wygasła — odnów lub wklej cookies' }
+  }
+  return {
+    label: formatDuration(seconds),
+    color: 'var(--success)',
+    title: session.last_bootstrap_error
+      ? `Ostatni błąd: ${session.last_bootstrap_error}`
+      : 'Odnów cookies Vinted przeglądarką',
+  }
 }
 
 export default function TopNav({
@@ -42,9 +62,10 @@ export default function TopNav({
   refreshingSession,
   onImportSession,
 }: Props) {
-  const { username, logout } = useAuth()
+  const { logout } = useAuth()
   const atLimit = stats ? stats.active_threads >= stats.max_threads : false
-  const sessionState = sessionLabel(session, refreshingSession)
+  const sessionState = sessionMeta(session, refreshingSession)
+  const telegramOk = Boolean(stats?.telegram_enabled)
 
   return (
     <header
@@ -57,67 +78,149 @@ export default function TopNav({
           <span className="text-base font-semibold tracking-tight">VintAgent</span>
         </a>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
           <span
-            className="rounded-full border px-3 py-1.5"
-            style={{ ...pillStyle, color: atLimit ? 'var(--warning)' : 'var(--muted-light)' }}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs sm:h-10 sm:px-3 sm:text-sm"
+            style={{
+              ...pillStyle,
+              color: atLimit ? 'var(--warning)' : 'var(--muted-light)',
+            }}
+            title="Aktywne wątki / limit"
           >
-            Wątki: {stats ? `${stats.active_threads}/${stats.max_threads}` : '–'}
+            <ThreadsIcon />
+            <span className="tabular-nums">
+              {stats ? `${stats.active_threads}/${stats.max_threads}` : '–'}
+            </span>
           </span>
 
-          <div className="flex overflow-hidden rounded-full border" style={pillStyle}>
-            <button
-              type="button"
-              onClick={onRefreshSession}
-              disabled={refreshingSession || !session?.browser_available}
-              title={
-                session?.last_bootstrap_error
-                  ? `Ostatni błąd: ${session.last_bootstrap_error}`
-                  : session?.browser_available
-                    ? 'Odnów cookies Vinted przeglądarką'
-                    : 'Automatyczne odnawianie sesji jest niedostępne'
-              }
-              className="px-3 py-1.5 transition-colors disabled:opacity-45"
-              style={{ color: sessionState.color }}
-            >
-              {sessionState.text}
-            </button>
-            <button
-              type="button"
-              onClick={onImportSession}
-              title="Wklej cookies z lokalnej przeglądarki (gdy Cloudflare blokuje IP serwera)"
-              className="border-l px-2.5 py-1.5 transition-colors hover:opacity-80"
-              style={{ borderColor: 'var(--border)', color: 'var(--muted-light)' }}
-            >
-              Wklej
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onRefreshSession}
+            disabled={refreshingSession || !session?.browser_available}
+            title={
+              session?.browser_available
+                ? sessionState.title
+                : 'Automatyczne odnawianie sesji jest niedostępne'
+            }
+            className={`${iconBtn} gap-0 px-0 sm:w-auto sm:gap-1.5 sm:px-3`}
+            style={{
+              ...pillStyle,
+              color: sessionState.color,
+              borderColor: 'var(--border)',
+            }}
+            aria-label="Odśwież sesję Vinted"
+          >
+            <SessionIcon />
+            <span className="hidden tabular-nums sm:inline sm:text-xs">{sessionState.label}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onImportSession}
+            title="Wklej cookies z lokalnej przeglądarki"
+            className={iconBtn}
+            style={{ ...pillStyle, color: 'var(--muted-light)', borderColor: 'var(--border)' }}
+            aria-label="Wklej sesję"
+          >
+            <PasteIcon />
+          </button>
 
           <button
             type="button"
             onClick={onTestTelegram}
-            disabled={testingTelegram || !stats?.telegram_enabled}
-            title={stats?.telegram_enabled ? 'Wyślij wiadomość testową' : 'Uzupełnij dane Telegrama w .env'}
-            className="rounded-full border px-3 py-1.5 transition-colors disabled:opacity-45"
-            style={{ ...pillStyle, color: stats?.telegram_enabled ? 'var(--success)' : 'var(--muted)' }}
+            disabled={testingTelegram || !telegramOk}
+            title={telegramOk ? 'Wyślij wiadomość testową' : 'Uzupełnij dane Telegrama w .env'}
+            className={iconBtn}
+            style={{
+              ...pillStyle,
+              color: telegramOk ? 'var(--success)' : 'var(--muted)',
+              borderColor: 'var(--border)',
+            }}
+            aria-label="Test Telegram"
           >
-            Telegram: {stats?.telegram_enabled ? 'gotowy' : 'brak konfiguracji'}
+            <TelegramIcon />
           </button>
-
-          <span className="hidden sm:inline" style={{ color: 'var(--muted)' }}>
-            {username}
-          </span>
 
           <button
             type="button"
             onClick={logout}
-            className="rounded-full border px-3 py-1.5 transition-colors hover:opacity-80"
-            style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)' }}
+            title="Wyloguj"
+            className={iconBtn}
+            style={{
+              borderColor: 'var(--border-strong)',
+              background: 'var(--surface)',
+              color: 'var(--muted-light)',
+            }}
+            aria-label="Wyloguj"
           >
-            Wyloguj
+            <LogoutIcon />
           </button>
         </div>
       </nav>
     </header>
+  )
+}
+
+function iconClass() {
+  return 'h-[18px] w-[18px]'
+}
+
+function ThreadsIcon() {
+  return (
+    <svg className={iconClass()} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 6.75h12M6 12h12M6 17.25h12"
+      />
+    </svg>
+  )
+}
+
+function SessionIcon() {
+  return (
+    <svg className={iconClass()} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"
+      />
+    </svg>
+  )
+}
+
+function PasteIcon() {
+  return (
+    <svg className={iconClass()} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-.966 0-1.814.608-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
+      />
+    </svg>
+  )
+}
+
+function TelegramIcon() {
+  return (
+    <svg className={iconClass()} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+      />
+    </svg>
+  )
+}
+
+function LogoutIcon() {
+  return (
+    <svg className={iconClass()} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+      />
+    </svg>
   )
 }
