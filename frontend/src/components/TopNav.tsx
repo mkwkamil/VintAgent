@@ -73,7 +73,7 @@ export default function TopNav({
       style={{ borderColor: 'var(--border)', background: 'rgba(10, 10, 10, 0.85)' }}
     >
       <nav className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
-        <a href="#" className="flex items-center gap-2.5">
+        <a href="#" className="flex items-center gap-2.5" aria-label="VintAgent">
           <BrandLogo size={32} />
           <span className="text-base font-semibold tracking-tight">VintAgent</span>
         </a>
