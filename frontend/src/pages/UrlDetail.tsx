@@ -146,6 +146,11 @@ export default function UrlDetail({ urlId, onBack, onEdit, onDeleted, startDisab
           >
             {item.url}
           </a>
+          <p className="mt-1 text-xs" style={{ color: item.telegram_topic_id != null ? 'var(--success)' : 'var(--warning)' }}>
+            {item.telegram_topic_id != null
+              ? `Telegram topic #${item.telegram_topic_id}`
+              : 'Brak topicu Telegram — utwórz poniżej albo przy starcie'}
+          </p>
         </div>
       </div>
 
@@ -181,6 +186,18 @@ export default function UrlDetail({ urlId, onBack, onEdit, onDeleted, startDisab
         >
           Edytuj
         </button>
+
+        {item.telegram_topic_id == null && (
+          <button
+            type="button"
+            onClick={() => act(() => api.ensureTelegramTopic(item.id), 'Utworzono topic w Telegramie')}
+            disabled={busy}
+            className="rounded-lg border px-3.5 py-1.5 transition-opacity hover:opacity-85 disabled:opacity-45"
+            style={{ borderColor: 'var(--border-strong)' }}
+          >
+            Utwórz topic TG
+          </button>
+        )}
 
         <button
           type="button"

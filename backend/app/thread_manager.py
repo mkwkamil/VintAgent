@@ -187,8 +187,19 @@ class ThreadManager:
         known = set(record.get("seen_ids") or [])
         new_items = [item for item in items if item.id not in known]
         # Vinted returns newest first; notify in listing order (oldest new item first).
+        topic_id = record.get("telegram_topic_id")
+        try:
+            message_thread_id = int(topic_id) if topic_id is not None else None
+        except (TypeError, ValueError):
+            message_thread_id = None
         for item in reversed(new_items):
-            telegram.send_item(item, record["name"], self._settings, source_url=record["url"])
+            telegram.send_item(
+                item,
+                record["name"],
+                self._settings,
+                source_url=record["url"],
+                message_thread_id=message_thread_id,
+            )
 
         storage.record_seen(url_id, item_ids)
         storage.record_poll(

@@ -20,6 +20,7 @@ export type TrackedUrl = {
   last_checked_at: string | null
   last_error: string | null
   thread_alive: boolean
+  telegram_topic_id: number | null
   stats: StatsSummary
 }
 
@@ -152,4 +153,7 @@ export const api = {
   startUrl: (id: string) => request<TrackedUrl>(`/api/urls/${id}/start`, { method: 'POST' }),
 
   stopUrl: (id: string) => request<TrackedUrl>(`/api/urls/${id}/stop`, { method: 'POST' }),
+
+  ensureTelegramTopic: (id: string) =>
+    request<TrackedUrl>(`/api/urls/${id}/telegram-topic`, { method: 'POST' }),
 }

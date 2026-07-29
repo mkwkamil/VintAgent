@@ -62,11 +62,18 @@ class URLOut(BaseModel):
     last_checked_at: str | None = None
     last_error: str | None = None
     thread_alive: bool = False
+    telegram_topic_id: int | None = None
     stats: StatsSummary = StatsSummary()
 
     @classmethod
     def from_record(cls, record: dict[str, Any], *, thread_alive: bool) -> "URLOut":
         from .analytics import summarize
+
+        topic = record.get("telegram_topic_id")
+        try:
+            topic_id = int(topic) if topic is not None else None
+        except (TypeError, ValueError):
+            topic_id = None
 
         return cls(
             id=record["id"],
@@ -77,6 +84,7 @@ class URLOut(BaseModel):
             last_checked_at=record.get("last_checked_at"),
             last_error=record.get("last_error"),
             thread_alive=thread_alive,
+            telegram_topic_id=topic_id,
             stats=StatsSummary(**summarize(record)),
         )
 

@@ -53,6 +53,7 @@ export default function UrlCard({ item, busy, startDisabled, onOpen, onStart, on
           <h3 className="truncate text-base font-semibold">{item.name}</h3>
           <p className="mt-0.5 text-xs" style={{ color: 'var(--muted)' }}>
             Sprawdzono {formatRelative(item.last_checked_at)}
+            {item.telegram_topic_id != null ? ' · topic TG' : ''}
           </p>
         </div>
         <StatusBadge status={item.status} hasError={Boolean(item.last_error)} />

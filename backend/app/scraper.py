@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -83,6 +83,7 @@ class VintedItem:
     size: str = ""
     condition: str = ""
     photo_url: str | None = None
+    photo_urls: list[str] = field(default_factory=list)
     # Unix timestamp of when the listing went up, used by the hour-of-day chart.
     listed_ts: int | None = None
 
@@ -159,7 +160,25 @@ def _photo_url(raw: Any) -> str | None:
     for thumb in raw.get("thumbnails") or []:
         if isinstance(thumb, dict) and thumb.get("type") in {"thumb310x430", "thumb428x624"}:
             return thumb.get("url")
-    return raw.get("url")
+    return raw.get("url") or raw.get("full_size_url")
+
+
+def _photo_urls(raw: dict[str, Any]) -> list[str]:
+    """Collect listing photos from the catalog payload when Vinted includes them."""
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def add(candidate: str | None) -> None:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            urls.append(candidate)
+
+    photos = raw.get("photos")
+    if isinstance(photos, list):
+        for photo in photos:
+            add(_photo_url(photo) if isinstance(photo, dict) else None)
+    add(_photo_url(raw.get("photo")))
+    return urls
 
 
 def _listed_ts(raw: dict[str, Any]) -> int | None:
@@ -387,6 +406,7 @@ class VintedScraper:
         url = raw.get("url") or f"{self.settings.vinted_base_url.rstrip('/')}/items/{item_id}"
         price = _price(raw.get("price"))
         total_price = _price(raw.get("total_item_price"))
+        photos = _photo_urls(raw)
         return VintedItem(
             id=item_id,
             title=str(raw.get("title") or "Bez tytułu"),
@@ -396,6 +416,36 @@ class VintedScraper:
             brand=str(raw.get("brand_title") or ""),
             size=str(raw.get("size_title") or ""),
             condition=str(raw.get("status") or ""),
-            photo_url=_photo_url(raw.get("photo")),
+            photo_url=photos[0] if photos else None,
+            photo_urls=photos,
             listed_ts=_listed_ts(raw),
         )
+
+    def fetch_item_photos(self, item_id: int) -> list[str]:
+        """Load up to 10 photo URLs for a listing (used by the More photos button)."""
+        if self._session is None:
+            self.refresh_session()
+        assert self._session is not None
+        self._sync_cookies()
+
+        base = self.settings.vinted_base_url.rstrip("/")
+        response = self._session.get(
+            f"{base}/api/v2/items/{item_id}",
+            headers=self._api_headers(f"{base}/items/{item_id}"),
+            timeout=self.settings.request_timeout_seconds,
+        )
+        if response.status_code in (401, 403, 429):
+            if self.renew_session():
+                response = self._session.get(
+                    f"{base}/api/v2/items/{item_id}",
+                    headers=self._api_headers(f"{base}/items/{item_id}"),
+                    timeout=self.settings.request_timeout_seconds,
+                )
+        if response.status_code >= 400:
+            raise RuntimeError(f"Item detail HTTP {response.status_code}")
+
+        payload = response.json()
+        item = payload.get("item") if isinstance(payload, dict) else None
+        if not isinstance(item, dict):
+            item = payload if isinstance(payload, dict) else {}
+        return _photo_urls(item)[:10]

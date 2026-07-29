@@ -12,7 +12,8 @@ Frontend (Vite + React + TS) i backend (FastAPI) działają w **jednym kontenerz
   losowy interwał 10–15 s, odporność na błędy 403/429.
 - **Sesja Vinted:** w pełni automatyczna — odświeżanie tokenu po HTTP, a headless Chromium tylko
   wtedy, gdy trzeba przejść wyzwanie Cloudflare.
-- **Powiadomienia:** Telegram Bot API (token i chat ID w `.env`).
+- **Powiadomienia:** Telegram Bot API — każdy tracker ma własny **topic** w grupie
+  (tworzony automatycznie przy dodaniu URL-a). Token i ID grupy w `.env`.
 - **Dashboard:** zarządzanie URL-ami (start/stop/edycja/usuwanie) plus statystyki każdego linku.
   Zescrapowane ogłoszenia **nie są** wyświetlane w UI — trafiają tylko na Telegram.
 
@@ -70,6 +71,7 @@ Aplikacja: http://localhost:8000 &nbsp;·&nbsp; health check: http://localhost:8
 | POST | `/api/urls/{id}/stats/reset` | Czyści historię statystyk linku |
 | PATCH | `/api/urls/{id}` | Zmiana nazwy lub URL-a |
 | DELETE | `/api/urls/{id}` | Usunięcie URL-a i zatrzymanie wątku |
+| POST | `/api/urls/{id}/telegram-topic` | Tworzy topic w grupie Telegram dla istniejącego trackera |
 | POST | `/api/urls/{id}/start` | Start wątku (409 przy limicie wątków) |
 | POST | `/api/urls/{id}/stop` | Zatrzymanie wątku |
 

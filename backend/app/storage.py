@@ -139,6 +139,7 @@ def create_url(name: str, url: str) -> dict[str, Any]:
         "seeded": False,
         "seen_ids": [],
         "stats": empty_stats(),
+        "telegram_topic_id": None,
     }
     with get_store().transaction() as data:
         data["urls"].append(record)
@@ -179,6 +180,15 @@ def set_status(url_id: str, status: str) -> dict[str, Any] | None:
         record["status"] = status
         if status == STATUS_STOPPED:
             record["last_error"] = None
+        return dict(record)
+
+
+def set_telegram_topic_id(url_id: str, topic_id: int | None) -> dict[str, Any] | None:
+    with get_store().transaction() as data:
+        record = _find(data, url_id)
+        if record is None:
+            return None
+        record["telegram_topic_id"] = topic_id
         return dict(record)
 
 
