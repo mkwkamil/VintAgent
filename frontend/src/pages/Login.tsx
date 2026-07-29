@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import BrandLogo from '../components/BrandLogo'
 
 export default function Login() {
   const { login } = useAuth()
@@ -34,15 +35,10 @@ export default function Login() {
         className="w-full max-w-sm rounded-2xl border p-6"
         style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
       >
-        <div className="flex items-center gap-2">
-          <span
-            className="grid size-9 place-items-center rounded-lg text-base font-bold"
-            style={{ background: 'var(--accent)', color: '#fff' }}
-          >
-            V
-          </span>
+        <div className="flex items-center gap-3">
+          <BrandLogo size={40} />
           <div>
-            <h1 className="text-lg font-semibold">VintAgent</h1>
+            <h1 className="text-lg font-semibold tracking-tight">VintAgent</h1>
             <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Panel administratora
             </p>

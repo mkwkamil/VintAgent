@@ -1,6 +1,7 @@
 import type { SessionStatus, Stats } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { formatDuration } from '../lib/format'
+import BrandLogo from './BrandLogo'
 
 type Props = {
   stats: Stats | null
@@ -51,14 +52,9 @@ export default function TopNav({
       style={{ borderColor: 'var(--border)', background: 'rgba(10, 10, 10, 0.85)' }}
     >
       <nav className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
-        <a href="#" className="flex items-center gap-2">
-          <span
-            className="grid size-8 place-items-center rounded-lg text-sm font-bold"
-            style={{ background: 'var(--accent)', color: '#fff' }}
-          >
-            V
-          </span>
-          <span className="text-base font-semibold">VintAgent</span>
+        <a href="#" className="flex items-center gap-2.5">
+          <BrandLogo size={32} />
+          <span className="text-base font-semibold tracking-tight">VintAgent</span>
         </a>
 
         <div className="ml-auto flex flex-wrap items-center gap-2 text-xs sm:text-sm">
