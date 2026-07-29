@@ -120,10 +120,21 @@ class SessionImport(BaseModel):
     cookie: str = Field(min_length=20, max_length=16_000)
 
 
+class RescueStatus(BaseModel):
+    valid: bool
+    expires_in_seconds: int = 0
+    reason: str = ""
+    vinted_url: str = ""
+    public_base_url: str | None = None
+    bookmarklet: str | None = None
+
+
 class ThreadStats(BaseModel):
     active_threads: int
     max_threads: int
     telegram_enabled: bool
+    scraping_blocked: bool = False
+    scraping_error: str | None = None
 
 
 class LoginRequest(BaseModel):

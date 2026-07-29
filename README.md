@@ -8,7 +8,8 @@ One Docker container serves both the React dashboard and the FastAPI backend. Tr
 
 - Admin login (JWT)
 - Up to 10 concurrent trackers (configurable)
-- Automatic Vinted session: HTTP token refresh, Chromium only when Cloudflare blocks
+- Vinted session via HTTP token refresh (no Chromium required on the server)
+- Phone rescue: Telegram alert + one-time link + bookmarklet when the session dies
 - Per-tracker Telegram topics
 - Stats: finds over time, posting hour-of-day histogram
 - Single JSON file storage (`data.json`), no database
@@ -17,7 +18,7 @@ One Docker container serves both the React dashboard and the FastAPI backend. Tr
 
 ```bash
 cp backend/.env.example backend/.env
-# set ADMIN_PASSWORD, JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# set ADMIN_PASSWORD, JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PUBLIC_BASE_URL
 
 mkdir -p backend/data
 docker compose up --build -d
@@ -33,23 +34,28 @@ Open `http://localhost:8000`.
 | `JWT_SECRET` | Long random string |
 | `TELEGRAM_BOT_TOKEN` | BotFather token |
 | `TELEGRAM_CHAT_ID` | Forum **group** id (`-100…`), bot must be admin with Topics rights |
+| `PUBLIC_BASE_URL` | Public URL of this instance (e.g. `http://IP:8000`) — needed for the rescue button |
 
-Optional knobs: `MAX_THREADS`, poll intervals, browser bootstrap, paths — see `backend/.env.example`.
+Optional knobs: `MAX_THREADS`, poll intervals, rescue TTL, paths — see `backend/.env.example`.
 
-## Architecture
+## Session & phone rescue
 
-```
-Browser ──► FastAPI (:8000)
-              ├── /api/*          JSON API + JWT
-              ├── /               React static build
-              ├── ThreadManager   1 thread per running tracker
-              ├── SessionKeeper   keeps Vinted cookies warm
-              └── data/           data.json + session.json (volume)
-```
+Day-to-day the server renews tokens with `POST /web/api/auth/refresh` (no browser).
+The keeper checks every minute and forces a refresh about every 45 minutes so a
+2-hour access token never silently dies.
 
-Scraping uses `curl_cffi` (Chrome TLS impersonation). Headless Chromium (Playwright) starts only to obtain cookies when a plain request cannot.
+**If you mostly only have a phone:** you cannot pull cookies from the Vinted app.
+The reliable lightweight setup is:
 
-**GCP / Cloudflare tip:** Datacenter IPs often fail the JS challenge. Bootstrap once on a home machine, then copy `backend/data/session.json` to the server (or use **Wklej** in the nav). HTTP refresh keeps the session alive afterwards.
+1. Seed `session.json` once (from a laptop / home browser → **Wklej**)
+2. Let HTTP keep-alive run on the VM
+3. **Required on GCP:** set `VINTED_PROXY` to a residential proxy — datacenter IP gets
+   HTTP 403 even with valid JWTs because `datadome` / `cf_clearance` are IP-bound.
+   Cookies copied from your home PC to the VM **will not** fix 403 on GCP alone.
+4. Rescue alert remains a last resort (bookmarklet / paste in mobile browser)
+
+When refresh still fails, VintAgent sends Telegram **Odnów sesję**. Chromium is
+off by default (`BROWSER_BOOTSTRAP_ENABLED=false`).
 
 ## Update
 
@@ -71,6 +77,10 @@ docker compose up --build -d
 | GET | `/api/session` | Vinted session status |
 | POST | `/api/session/refresh` | Force Chromium cookie bootstrap |
 | POST | `/api/session/import` | Paste Cookie header from a browser |
+| GET | `/api/session/rescue/{token}` | Public rescue link status |
+| POST | `/api/session/rescue/{token}` | Public cookie import (one-time) |
+| POST | `/api/session/rescue/{token}/form` | Bookmarklet form POST |
+| POST | `/api/session/rescue/test` | Force rescue Telegram alert |
 | POST | `/api/telegram/test` | Send a test message |
 | GET/POST | `/api/urls` | List / create trackers |
 | GET/PATCH/DELETE | `/api/urls/{id}` | Detail / update / delete |

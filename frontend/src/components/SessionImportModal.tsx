@@ -3,12 +3,15 @@ import { useState } from 'react'
 type Props = {
   onClose: () => void
   onSubmit: (cookie: string) => Promise<void>
+  onTestRescue?: () => Promise<void>
 }
 
-export default function SessionImportModal({ onClose, onSubmit }: Props) {
+export default function SessionImportModal({ onClose, onSubmit, onTestRescue }: Props) {
   const [cookie, setCookie] = useState('')
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -18,6 +21,7 @@ export default function SessionImportModal({ onClose, onSubmit }: Props) {
     }
     setSaving(true)
     setError(null)
+    setInfo(null)
     try {
       await onSubmit(cookie.trim())
       onClose()
@@ -25,6 +29,21 @@ export default function SessionImportModal({ onClose, onSubmit }: Props) {
       setError(err instanceof Error ? err.message : 'Import nie powiódł się')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const testRescue = async () => {
+    if (!onTestRescue) return
+    setTesting(true)
+    setError(null)
+    setInfo(null)
+    try {
+      await onTestRescue()
+      setInfo('Wysłano testowy alert na Telegram — sprawdź telefon')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nie udało się wysłać alertu')
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -43,7 +62,7 @@ export default function SessionImportModal({ onClose, onSubmit }: Props) {
         <h2 className="text-lg font-semibold">Wklej sesję Vinted</h2>
         <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
           Gdy Cloudflare blokuje IP serwera, wklej nagłówek Cookie z lokalnej przeglądarki
-          (DevTools → Network → vinted.pl → Cookie) albo skopiuj plik <code>session.json</code>.
+          (DevTools → Network → vinted.pl → Cookie) albo użyj alertu Telegram → zakładki na telefonie.
         </p>
 
         <textarea
@@ -61,24 +80,44 @@ export default function SessionImportModal({ onClose, onSubmit }: Props) {
             {error}
           </p>
         )}
+        {info && (
+          <p className="mt-3 text-sm" style={{ color: 'var(--success)' }}>
+            {info}
+          </p>
+        )}
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border px-3.5 py-1.5 text-sm"
-            style={{ borderColor: 'var(--border-strong)' }}
-          >
-            Anuluj
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg px-3.5 py-1.5 text-sm font-medium text-white disabled:opacity-45"
-            style={{ background: 'var(--accent)' }}
-          >
-            {saving ? 'Zapisuję…' : 'Zapisz sesję'}
-          </button>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          {onTestRescue ? (
+            <button
+              type="button"
+              onClick={() => void testRescue()}
+              disabled={testing}
+              className="rounded-lg border px-3 py-1.5 text-xs disabled:opacity-45"
+              style={{ borderColor: 'var(--border-strong)', color: 'var(--muted-light)' }}
+            >
+              {testing ? 'Wysyłam…' : 'Test alertu ratunkowego'}
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border px-3.5 py-1.5 text-sm"
+              style={{ borderColor: 'var(--border-strong)' }}
+            >
+              Anuluj
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg px-3.5 py-1.5 text-sm font-medium text-white disabled:opacity-45"
+              style={{ background: 'var(--accent)' }}
+            >
+              {saving ? 'Zapisuję…' : 'Zapisz sesję'}
+            </button>
+          </div>
         </div>
       </form>
     </div>

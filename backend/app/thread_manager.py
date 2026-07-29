@@ -156,12 +156,19 @@ class ThreadManager:
                     return
                 self._poll_once(record, scraper)
             except VintedBlocked as exc:
-                logger.warning("%s: %s", url_id, exc)
+                logger.error("[VINTED] tracker %s blocked HTTP %s — %s", url_id, exc.status_code, exc)
                 storage.record_poll(url_id, error=str(exc))
                 try:
-                    scraper.refresh_session()
+                    scraper._recover_blocked(full_rotate=True)
                 except Exception:
-                    logger.exception("Session refresh failed for %s", url_id)
+                    logger.exception("Session recovery failed for %s", url_id)
+                from .session_rescue import notify_session_rescue_needed
+
+                if exc.status_code in (401, 403):
+                    notify_session_rescue_needed(
+                        f"Cloudflare / Vinted blokuje zapytania (HTTP {exc.status_code}). "
+                        "Ustaw VINTED_PROXY (residential) albo wklej świeże cookies."
+                    )
                 delay = random.uniform(
                     settings.blocked_backoff_min_seconds,
                     settings.blocked_backoff_max_seconds,

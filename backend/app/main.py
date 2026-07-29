@@ -25,6 +25,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
 )
+# Dashboard polls /api every 10s — hide those 200 lines so Vinted errors stand out.
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

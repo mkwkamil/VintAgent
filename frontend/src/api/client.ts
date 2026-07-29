@@ -48,6 +48,8 @@ export type Stats = {
   active_threads: number
   max_threads: number
   telegram_enabled: boolean
+  scraping_blocked: boolean
+  scraping_error: string | null
 }
 
 let onUnauthorized: (() => void) | null = null
@@ -128,6 +130,8 @@ export const api = {
     }),
 
   testTelegram: () => request<{ detail: string }>('/api/telegram/test', { method: 'POST' }),
+
+  testRescueAlert: () => request<{ detail: string }>('/api/session/rescue/test', { method: 'POST' }),
 
   listUrls: () => request<TrackedUrl[]>('/api/urls'),
 

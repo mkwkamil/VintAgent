@@ -37,7 +37,7 @@ function sessionMeta(
       color: session.browser_available ? 'var(--warning)' : 'var(--danger)',
       title: session.browser_available
         ? 'Pobieranie sesji Vinted'
-        : 'Brak sesji Vinted — wklej cookies lub uruchom bootstrap',
+        : 'Brak sesji Vinted — wklej cookies albo poczekaj na alert Telegram',
     }
   }
   const seconds = session.access_expires_in_seconds
@@ -47,9 +47,15 @@ function sessionMeta(
   return {
     label: formatDuration(seconds),
     color: 'var(--success)',
-    title: session.last_bootstrap_error
-      ? `Ostatni błąd: ${session.last_bootstrap_error}`
-      : 'Odnów cookies Vinted przeglądarką',
+    title: [
+      session.refresh_expires_at
+        ? `Access: ${formatDuration(seconds)} · refresh do ${new Date(session.refresh_expires_at).toLocaleString('pl-PL')}`
+        : `Access: ${formatDuration(seconds)}`,
+      session.last_bootstrap_error ? `Ostatni błąd: ${session.last_bootstrap_error}` : '',
+      'HTTP keep-alive odnawia access automatycznie',
+    ]
+      .filter(Boolean)
+      .join(' — '),
   }
 }
 
@@ -66,6 +72,7 @@ export default function TopNav({
   const atLimit = stats ? stats.active_threads >= stats.max_threads : false
   const sessionState = sessionMeta(session, refreshingSession)
   const telegramOk = Boolean(stats?.telegram_enabled)
+  const vintedBlocked = Boolean(stats?.scraping_blocked)
 
   return (
     <header
@@ -79,6 +86,19 @@ export default function TopNav({
         </a>
 
         <div className="ml-auto flex flex-wrap items-center gap-1.5 sm:gap-2">
+          {vintedBlocked && (
+            <span
+              className="inline-flex h-9 max-w-[11rem] items-center truncate rounded-xl border px-2.5 text-xs sm:h-10 sm:max-w-xs sm:px-3 sm:text-sm"
+              style={{
+                borderColor: 'rgba(239, 68, 68, 0.35)',
+                background: 'rgba(239, 68, 68, 0.08)',
+                color: 'var(--danger)',
+              }}
+              title={stats?.scraping_error ?? 'Vinted blokuje scraping'}
+            >
+              Vinted: 403
+            </span>
+          )}
           <span
             className="inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs sm:h-10 sm:px-3 sm:text-sm"
             style={{

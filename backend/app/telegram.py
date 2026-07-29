@@ -131,6 +131,7 @@ def send_message(
     settings: Settings | None = None,
     *,
     message_thread_id: int | None = None,
+    reply_markup: dict[str, Any] | None = None,
 ) -> bool:
     settings = settings or get_settings()
     payload: dict[str, Any] = {
@@ -141,6 +142,8 @@ def send_message(
     }
     if message_thread_id is not None:
         payload["message_thread_id"] = message_thread_id
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
     return _post("sendMessage", payload, settings)
 
 
