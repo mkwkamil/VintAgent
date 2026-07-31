@@ -211,10 +211,6 @@ export default function Dashboard() {
             flash('info', 'Sesja Vinted zaimportowana')
             await refresh()
           }}
-          onTestRescue={async () => {
-            const result = await api.testRescueAlert()
-            flash('info', result.detail)
-          }}
         />
       )}
     </div>

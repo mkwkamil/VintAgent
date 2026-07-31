@@ -17,6 +17,7 @@ from typing import Any
 from . import storage, telegram
 from .config import Settings, get_settings
 from .scraper import VintedBlocked, VintedScraper
+from .session_manager import get_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -158,17 +159,8 @@ class ThreadManager:
             except VintedBlocked as exc:
                 logger.error("[VINTED] tracker %s blocked HTTP %s — %s", url_id, exc.status_code, exc)
                 storage.record_poll(url_id, error=str(exc))
-                try:
-                    scraper._recover_blocked(full_rotate=True)
-                except Exception:
-                    logger.exception("Session recovery failed for %s", url_id)
-                from .session_rescue import notify_session_rescue_needed
-
-                if exc.status_code in (401, 403):
-                    notify_session_rescue_needed(
-                        f"Cloudflare / Vinted blokuje zapytania (HTTP {exc.status_code}). "
-                        "Ustaw VINTED_PROXY (residential) albo wklej świeże cookies."
-                    )
+                if get_session_manager().recover():
+                    scraper.sync_cookies()
                 delay = random.uniform(
                     settings.blocked_backoff_min_seconds,
                     settings.blocked_backoff_max_seconds,

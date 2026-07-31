@@ -7,6 +7,7 @@ compiled React bundle (copied into ``static_dir`` by the Docker build) at ``/``.
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -17,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__, storage
 from .api import api_router
 from .config import get_settings
-from .session_keeper import get_keeper
+from .session_manager import get_session_manager
 from .storage import STATUS_RUNNING, STATUS_STOPPED
 from .thread_manager import MaxThreadsReached, get_manager
 
@@ -43,18 +44,40 @@ def _resume_running_urls() -> None:
             storage.set_status(record["id"], STATUS_STOPPED)
 
 
+def _bootstrap_session_then_resume() -> None:
+    manager = get_session_manager()
+    if manager.ensure_ready(force=True, timeout=180.0):
+        logger.info("Vinted session ready")
+    else:
+        logger.warning(
+            "Vinted session not ready: %s",
+            manager.status().get("last_bootstrap_error") or "unknown",
+        )
+    _resume_running_urls()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    if settings.data_file.resolve() == settings.session_file.resolve():
+        logger.error(
+            "DATA_FILE and SESSION_FILE wskazują ten sam plik (%s) — popraw .env",
+            settings.data_file,
+        )
     logger.info("VintAgent %s starting (data file: %s)", __version__, settings.data_file)
     if not settings.telegram_enabled:
         logger.warning("Telegram is not configured; notifications will be skipped")
-    get_keeper().start()
-    _resume_running_urls()
+    get_session_manager().start()
+    # Scrapery dopiero po bootstrapie — inaczej wszystkie dostają 403 zanim CDP skończy sync.
+    threading.Thread(
+        target=_bootstrap_session_then_resume,
+        name="session-bootstrap",
+        daemon=True,
+    ).start()
     try:
         yield
     finally:
-        get_keeper().stop()
+        get_session_manager().stop()
         get_manager().stop_all()
         logger.info("VintAgent stopped")
 

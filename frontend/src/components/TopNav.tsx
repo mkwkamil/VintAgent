@@ -33,11 +33,9 @@ function sessionMeta(
   }
   if (!session.has_session) {
     return {
-      label: session.browser_available ? '…' : 'brak',
-      color: session.browser_available ? 'var(--warning)' : 'var(--danger)',
-      title: session.browser_available
-        ? 'Pobieranie sesji Vinted'
-        : 'Brak sesji Vinted — wklej cookies albo poczekaj na alert Telegram',
+      label: 'brak',
+      color: 'var(--danger)',
+      title: 'Brak sesji — otwórz Chrome i zaloguj się na vinted.pl',
     }
   }
   const seconds = session.access_expires_in_seconds
@@ -52,7 +50,11 @@ function sessionMeta(
         ? `Access: ${formatDuration(seconds)} · refresh do ${new Date(session.refresh_expires_at).toLocaleString('pl-PL')}`
         : `Access: ${formatDuration(seconds)}`,
       session.last_bootstrap_error ? `Ostatni błąd: ${session.last_bootstrap_error}` : '',
-      'HTTP keep-alive odnawia access automatycznie',
+      session.browser_running
+        ? session.cdp_ok === false
+          ? 'Chrome CDP padł — restartuję w tle'
+          : 'Chrome CDP utrzymuje sesję'
+        : 'Chrome CDP nie działa — sprawdź logi',
     ]
       .filter(Boolean)
       .join(' — '),
@@ -116,11 +118,13 @@ export default function TopNav({
           <button
             type="button"
             onClick={onRefreshSession}
-            disabled={refreshingSession || !session?.browser_available}
+            disabled={refreshingSession}
             title={
-              session?.browser_available
-                ? sessionState.title
-                : 'Automatyczne odnawianie sesji jest niedostępne'
+              session?.last_bootstrap_error
+                ? `Ostatni błąd: ${session.last_bootstrap_error}`
+                : session?.browser_running
+                  ? 'Wymuś synchronizację cookies z Chrome CDP'
+                  : 'Chrome CDP nie działa'
             }
             className={`${iconBtn} gap-0 px-0 sm:w-auto sm:gap-1.5 sm:px-3`}
             style={{
@@ -137,7 +141,7 @@ export default function TopNav({
           <button
             type="button"
             onClick={onImportSession}
-            title="Wklej cookies z lokalnej przeglądarki"
+            title="Awaryjny import Cookie (DevTools)"
             className={iconBtn}
             style={{ ...pillStyle, color: 'var(--muted-light)', borderColor: 'var(--border)' }}
             aria-label="Wklej sesję"

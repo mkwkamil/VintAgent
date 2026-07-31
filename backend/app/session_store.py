@@ -6,8 +6,8 @@ mutable state — every scraper thread must read from and write to this store, a
 only one refresh may be in flight at a time (``refresh_lock``), otherwise threads
 would invalidate each other's tokens.
 
-Cookies are never configured by hand: they are produced by the headless browser
-bootstrap and survive restarts through ``session.json``.
+Cookies are imported manually (awaryjny Wklej) or synced automatically from the
+persistent Chromium profile in :mod:`app.session_manager`.
 """
 
 from __future__ import annotations
@@ -37,6 +37,41 @@ def parse_cookie_header(raw: str) -> dict[str, str]:
         name, separator, value = chunk.strip().partition("=")
         if separator and name:
             cookies[name] = value
+    return cookies
+
+
+def _strip_cookie_value(raw: str, name: str) -> str:
+    """Accept a bare value or ``name=value`` pasted from mobile inspectors."""
+    text = raw.strip()
+    if not text:
+        return ""
+    if "=" in text and text.split("=", 1)[0].strip() == name:
+        return text.split("=", 1)[1].strip()
+    return text
+
+
+def cookies_from_fields(
+    *,
+    access_token: str,
+    refresh_token: str,
+    datadome: str | None = None,
+    cf_clearance: str | None = None,
+    anon_id: str | None = None,
+    cf_bm: str | None = None,
+) -> dict[str, str]:
+    cookies = {
+        ACCESS_TOKEN_COOKIE: _strip_cookie_value(access_token, ACCESS_TOKEN_COOKIE),
+        REFRESH_TOKEN_COOKIE: _strip_cookie_value(refresh_token, REFRESH_TOKEN_COOKIE),
+    }
+    optional = {
+        "datadome": datadome,
+        "cf_clearance": cf_clearance,
+        "anon_id": anon_id,
+        "__cf_bm": cf_bm,
+    }
+    for name, value in optional.items():
+        if value and (clean := _strip_cookie_value(value, name)):
+            cookies[name] = clean
     return cookies
 
 
@@ -72,6 +107,7 @@ class SessionStore:
 
     def _read_file(self) -> dict[str, str]:
         path = self._settings.session_file
+        self._updated_at = None
         try:
             with path.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -81,6 +117,12 @@ class SessionStore:
             logger.warning("Ignoring unreadable session file %s", path)
             return {}
         cookies = data.get("cookies")
+        updated_raw = data.get("updated_at")
+        if isinstance(updated_raw, str):
+            try:
+                self._updated_at = datetime.fromisoformat(updated_raw)
+            except ValueError:
+                pass
         return cookies if isinstance(cookies, dict) else {}
 
     def _persist(self) -> None:
@@ -186,7 +228,7 @@ class SessionStore:
         return remaining <= self._settings.session_refresh_margin_seconds
 
     def needs_bootstrap(self) -> bool:
-        """True when no HTTP refresh can save us and only a browser will do."""
+        """True when no HTTP refresh can save us — import cookies or run HTTP bootstrap."""
         if not self.has_access_token():
             return True
         refresh_expiry = self.refresh_token_expiry()

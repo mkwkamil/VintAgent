@@ -110,23 +110,17 @@ class SessionStatus(BaseModel):
     refresh_expires_at: str | None = None
     updated_at: str | None = None
     browser_available: bool = False
+    browser_running: bool = False
+    cdp_ok: bool = False
+    proxy_configured: bool = False
     last_bootstrap_at: str | None = None
     last_bootstrap_error: str | None = None
 
 
 class SessionImport(BaseModel):
-    """Seed cookies obtained from a residential browser / local VintAgent."""
+    """Emergency manual seed — paste full Cookie header from DevTools."""
 
-    cookie: str = Field(min_length=20, max_length=16_000)
-
-
-class RescueStatus(BaseModel):
-    valid: bool
-    expires_in_seconds: int = 0
-    reason: str = ""
-    vinted_url: str = ""
-    public_base_url: str | None = None
-    bookmarklet: str | None = None
+    cookie: str = Field(min_length=20, max_length=32_000)
 
 
 class ThreadStats(BaseModel):

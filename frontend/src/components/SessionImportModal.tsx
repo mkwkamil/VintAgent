@@ -3,25 +3,22 @@ import { useState } from 'react'
 type Props = {
   onClose: () => void
   onSubmit: (cookie: string) => Promise<void>
-  onTestRescue?: () => Promise<void>
 }
 
-export default function SessionImportModal({ onClose, onSubmit, onTestRescue }: Props) {
+export default function SessionImportModal({ onClose, onSubmit }: Props) {
   const [cookie, setCookie] = useState('')
   const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!cookie.trim()) {
-      setError('Wklej nagłówek Cookie z przeglądarki')
+      setError('Wklej nagłówek Cookie')
       return
     }
     setSaving(true)
     setError(null)
-    setInfo(null)
     try {
       await onSubmit(cookie.trim())
       onClose()
@@ -29,21 +26,6 @@ export default function SessionImportModal({ onClose, onSubmit, onTestRescue }: 
       setError(err instanceof Error ? err.message : 'Import nie powiódł się')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const testRescue = async () => {
-    if (!onTestRescue) return
-    setTesting(true)
-    setError(null)
-    setInfo(null)
-    try {
-      await onTestRescue()
-      setInfo('Wysłano testowy alert na Telegram — sprawdź telefon')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nie udało się wysłać alertu')
-    } finally {
-      setTesting(false)
     }
   }
 
@@ -59,65 +41,68 @@ export default function SessionImportModal({ onClose, onSubmit, onTestRescue }: 
         className="w-full max-w-lg rounded-2xl border p-5 shadow-xl"
         style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
       >
-        <h2 className="text-lg font-semibold">Wklej sesję Vinted</h2>
+        <h2 className="text-lg font-semibold">Sesja Vinted</h2>
         <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-          Gdy Cloudflare blokuje IP serwera, wklej nagłówek Cookie z lokalnej przeglądarki
-          (DevTools → Network → vinted.pl → Cookie) albo użyj alertu Telegram → zakładki na telefonie.
+          Chrome CDP powinien sam utrzymywać sesję (jak CookieScraper). Import poniżej to
+          tylko awaryjna opcja.
         </p>
 
-        <textarea
-          value={cookie}
-          onChange={(event) => setCookie(event.target.value)}
-          rows={6}
-          placeholder="access_token_web=...; refresh_token_web=...; anon_id=..."
-          className="mt-4 w-full resize-y rounded-xl border px-3 py-2 font-mono text-xs outline-none"
-          style={{ borderColor: 'var(--border-strong)', background: 'var(--bg)', color: 'var(--ink)' }}
-          autoFocus
-        />
+        {!showAdvanced ? (
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(true)}
+            className="mt-4 text-xs underline"
+            style={{ color: 'var(--muted-light)' }}
+          >
+            Awaryjny import Cookie…
+          </button>
+        ) : (
+          <>
+            <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>
+              DevTools → Network → vinted.pl → nagłówek <strong>Cookie</strong> (cały, jedna linia)
+            </p>
+            <textarea
+              value={cookie}
+              onChange={(event) => setCookie(event.target.value)}
+              rows={5}
+              placeholder="access_token_web=eyJ…; refresh_token_web=eyJ…; datadome=…"
+              className="mt-2 w-full resize-y rounded-xl border px-3 py-2 font-mono text-xs outline-none"
+              style={{
+                borderColor: 'var(--border-strong)',
+                background: 'var(--bg)',
+                color: 'var(--ink)',
+              }}
+              autoFocus
+              spellCheck={false}
+            />
+          </>
+        )}
 
         {error && (
           <p className="mt-3 text-sm" style={{ color: 'var(--danger)' }}>
             {error}
           </p>
         )}
-        {info && (
-          <p className="mt-3 text-sm" style={{ color: 'var(--success)' }}>
-            {info}
-          </p>
-        )}
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          {onTestRescue ? (
-            <button
-              type="button"
-              onClick={() => void testRescue()}
-              disabled={testing}
-              className="rounded-lg border px-3 py-1.5 text-xs disabled:opacity-45"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--muted-light)' }}
-            >
-              {testing ? 'Wysyłam…' : 'Test alertu ratunkowego'}
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border px-3.5 py-1.5 text-sm"
-              style={{ borderColor: 'var(--border-strong)' }}
-            >
-              Anuluj
-            </button>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border px-3.5 py-1.5 text-sm"
+            style={{ borderColor: 'var(--border-strong)' }}
+          >
+            Zamknij
+          </button>
+          {showAdvanced && (
             <button
               type="submit"
               disabled={saving}
               className="rounded-lg px-3.5 py-1.5 text-sm font-medium text-white disabled:opacity-45"
               style={{ background: 'var(--accent)' }}
             >
-              {saving ? 'Zapisuję…' : 'Zapisz sesję'}
+              {saving ? 'Zapisuję…' : 'Import awaryjny'}
             </button>
-          </div>
+          )}
         </div>
       </form>
     </div>

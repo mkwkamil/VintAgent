@@ -30,29 +30,18 @@ class Settings(BaseSettings):
     items_per_page: int = 24
     seen_ids_limit: int = 300
     vinted_base_url: str = "https://www.vinted.pl"
-    # Comma-separated curl_cffi impersonation profiles (TLS + browser headers).
     vinted_impersonate: str = "chrome,chrome136,chrome142"
-    # Optional residential proxy for ALL Vinted HTTP (refresh + scrape).
-    # Example: http://user:pass@host:port  or  socks5h://user:pass@host:port
     vinted_proxy: str = ""
-    # Renew access_token_web this many seconds before JWT expiry.
     session_refresh_margin_seconds: float = 1800.0
-    # Also force a refresh this often even when the JWT is not near expiry yet.
     session_force_refresh_seconds: float = 2700.0
-
-    # Chromium cookie bootstrap (optional; datacenter IPs usually fail CF).
-    browser_bootstrap_enabled: bool = False
-    browser_min_interval_seconds: float = 120.0
-    browser_timeout_seconds: float = 90.0
-    browser_executable_path: str = ""
-    browser_locale: str = "pl-PL"
-    browser_timezone: str = "Europe/Warsaw"
     session_check_interval_seconds: float = 60.0
 
-    # Phone rescue: Telegram deep-link + one-time token (no admin login).
-    public_base_url: str = ""
-    session_rescue_ttl_seconds: float = 900.0
-    session_rescue_alert_cooldown_seconds: float = 1800.0
+    # Chrome CDP (CookieScraper) — prawdziwy Chrome, nie Playwright headless
+    browser_bootstrap_enabled: bool = True
+    chrome_cdp_url: str = "http://127.0.0.1:9222"
+    browser_profile_dir: Path = BACKEND_DIR / "data" / "chrome_cdp"
+    browser_executable_path: str = ""
+    browser_timeout_seconds: float = 300.0
 
     # Stats retention (hourly buckets).
     stats_retention_hours: int = 168

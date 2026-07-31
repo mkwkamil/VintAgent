@@ -40,6 +40,9 @@ export type SessionStatus = {
   refresh_expires_at: string | null
   updated_at: string | null
   browser_available: boolean
+  browser_running: boolean
+  cdp_ok?: boolean
+  proxy_configured: boolean
   last_bootstrap_at: string | null
   last_bootstrap_error: string | null
 }
@@ -130,8 +133,6 @@ export const api = {
     }),
 
   testTelegram: () => request<{ detail: string }>('/api/telegram/test', { method: 'POST' }),
-
-  testRescueAlert: () => request<{ detail: string }>('/api/session/rescue/test', { method: 'POST' }),
 
   listUrls: () => request<TrackedUrl[]>('/api/urls'),
 
