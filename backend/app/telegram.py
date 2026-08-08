@@ -10,7 +10,7 @@ from __future__ import annotations
 import html
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from curl_cffi import requests as cffi
@@ -29,6 +29,24 @@ TOPIC_NAME_MAX = 128
 TOPIC_ICON_SEARCH = "5309965701241379366"
 # Light-blue topic colour (0x6FB9F0) — matches Telegram's default search style.
 TOPIC_ICON_COLOR = 0x6FB9F0
+
+
+def _format_listed_time(ts: int) -> str:
+    """Format hours for Telegram labels.
+
+    Vinted timestamps are treated as UTC, so we render them in Europe/Warsaw
+    (avoid relying on container TZ being set).
+    """
+    dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        # Python 3.11 zoneinfo usually works if tzdata is installed in image.
+        from zoneinfo import ZoneInfo
+
+        return dt_utc.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%H:%M")
+    except Exception:
+        # Fallback: summer time in Poland is +2. (For exact DST handling
+        # you want zoneinfo/tzdata, but this fixes the current 2h offset.)
+        return (dt_utc + timedelta(hours=2)).strftime("%H:%M")
 
 
 def _call(
@@ -163,8 +181,7 @@ def format_item(item: "VintedItem", _source_name: str = "") -> str:
     if item.condition:
         lines.append(f"Quality: <b>{esc(item.condition)}</b>")
     if item.listed_ts:
-        listed_at = datetime.fromtimestamp(item.listed_ts, tz=timezone.utc).astimezone().strftime("%H:%M")
-        lines.append(f"Posted: <b>{listed_at}</b>")
+        lines.append(f"Posted: <b>{_format_listed_time(item.listed_ts)}</b>")
     return "\n".join(lines)
 
 
